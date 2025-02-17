@@ -1,0 +1,1340 @@
+================================================
+File: GenAIWithGemini.sln
+================================================
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35527.113
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenAIWithGemini", "GenAIWithGemini\GenAIWithGemini.csproj", "{61ADCBAC-C035-4112-80D5-BA02B70B11FB}"
+EndProject
+Project("{E24C65DC-7377-472B-9ABA-BC803B73C61A}") = "Ui", "..\Ui\", "{B73D117A-A900-4AB7-8142-F9BD3A3C2C2C}"
+	ProjectSection(WebsiteProperties) = preProject
+		Debug.AspNetCompiler.VirtualPath = "/localhost_49503"
+		Debug.AspNetCompiler.PhysicalPath = "..\Ui\"
+		Debug.AspNetCompiler.TargetPath = "PrecompiledWeb\localhost_49503\"
+		Debug.AspNetCompiler.Updateable = "true"
+		Debug.AspNetCompiler.ForceOverwrite = "true"
+		Debug.AspNetCompiler.FixedNames = "false"
+		Debug.AspNetCompiler.Debug = "True"
+		Release.AspNetCompiler.VirtualPath = "/localhost_49503"
+		Release.AspNetCompiler.PhysicalPath = "..\Ui\"
+		Release.AspNetCompiler.TargetPath = "PrecompiledWeb\localhost_49503\"
+		Release.AspNetCompiler.Updateable = "true"
+		Release.AspNetCompiler.ForceOverwrite = "true"
+		Release.AspNetCompiler.FixedNames = "false"
+		Release.AspNetCompiler.Debug = "False"
+		VWDPort = "49503"
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{61ADCBAC-C035-4112-80D5-BA02B70B11FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{61ADCBAC-C035-4112-80D5-BA02B70B11FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{61ADCBAC-C035-4112-80D5-BA02B70B11FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{61ADCBAC-C035-4112-80D5-BA02B70B11FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B73D117A-A900-4AB7-8142-F9BD3A3C2C2C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B73D117A-A900-4AB7-8142-F9BD3A3C2C2C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B73D117A-A900-4AB7-8142-F9BD3A3C2C2C}.Release|Any CPU.ActiveCfg = Debug|Any CPU
+		{B73D117A-A900-4AB7-8142-F9BD3A3C2C2C}.Release|Any CPU.Build.0 = Debug|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
+
+
+================================================
+File: GenAIWithGemini/GenAIWithGemini.csproj
+================================================
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+</Project>
+
+
+================================================
+File: GenAIWithGemini/GenAIWithGemini.http
+================================================
+@GenAIWithGemini_HostAddress = http://localhost:5269
+
+GET {{GenAIWithGemini_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+
+================================================
+File: GenAIWithGemini/Program.cs
+================================================
+using GenAIWithGemini.Client;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+
+builder.Services.AddControllers();
+// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+string apiKey = "your-key";
+builder.Services.AddSingleton(new GeminiApiClient(apiKey));
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddCors();
+var app = builder.Build();
+app.UseCors(option => option
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .WithExposedHeaders("Content-Dispostion"));
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();
+
+
+================================================
+File: GenAIWithGemini/appsettings.Development.json
+================================================
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  }
+}
+
+
+================================================
+File: GenAIWithGemini/appsettings.json
+================================================
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}
+
+
+================================================
+File: GenAIWithGemini/Client/GeminiApiClient.cs
+================================================
+﻿using System.Text;
+using System;
+using GenAIWithGemini.Model;
+using GenAIWithGemini.Model.ContentResponse;
+using Newtonsoft.Json;
+
+namespace GenAIWithGemini.Client
+{
+    public class GeminiApiClient
+    {
+        private readonly HttpClient _httpClient;
+        private readonly string _apiKey;
+        public GeminiApiClient(string apiKey)
+        {
+            _httpClient = new HttpClient();
+            _apiKey = apiKey;
+        }
+        public async Task<string> GenerateContentAsync(string prompt)
+        {
+            string url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={_apiKey}";
+            var request = new ContentRequest
+            {
+                contents = new[]
+                {
+                    new Model.Content
+                    {
+                        parts = new[]
+                        {
+                            new Model.Part
+                            {
+                                text = prompt
+                            }
+                        }
+                    }
+                }
+            };
+            string jsonRequest = JsonConvert.SerializeObject(request);
+            var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response = await _httpClient.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string jsonResponse = await response.Content.ReadAsStringAsync();
+                // You can deserialize jsonResponse if needed
+                var geminiResponse = JsonConvert.DeserializeObject<ContentResponse>(jsonResponse);
+                return geminiResponse.Candidates[0].Content.Parts[0].Text;
+            }
+            else
+            {
+                throw new Exception("Error communicating with Gemini API.");
+            }
+        }
+    }
+}
+
+
+================================================
+File: GenAIWithGemini/Controllers/GeminiAIController.cs
+================================================
+using GenAIWithGemini.Client;
+using GenAIWithGemini.Model;
+using Microsoft.AspNetCore.Mvc;
+
+namespace GenAIWithGemini.Controllers
+{
+    [ApiController]
+    [Route("[controller]")]
+    public class GeminiAIController : ControllerBase
+    {
+        private readonly GeminiApiClient _geminiApiClient;
+
+        public GeminiAIController(GeminiApiClient geminiApiClient)
+        {
+            _geminiApiClient = geminiApiClient;
+        }
+
+        [HttpPost("generate")]
+        public async Task<IActionResult> GenerateContent([FromBody] PromptRequest request)
+        {
+            try
+            {
+                string response = await _geminiApiClient.GenerateContentAsync(request.Prompt);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ex.Message);
+            }
+        }
+    }
+}
+
+
+================================================
+File: GenAIWithGemini/Model/ContentRequest.cs
+================================================
+﻿namespace GenAIWithGemini.Model
+{
+    public class ContentRequest
+    {
+        public Content[] contents { get; set; }
+    }
+    public class Content
+    {
+        public Part[] parts { get; set; }
+    }
+    public class Part
+    {
+        public string text { get; set; }
+    }
+}
+
+
+================================================
+File: GenAIWithGemini/Model/ContentResponse.cs
+================================================
+﻿namespace GenAIWithGemini.Model.ContentResponse
+{
+    internal sealed class ContentResponse
+    {
+        public Candidate[] Candidates { get; set; }
+        public PromptFeedback PromptFeedback { get; set; }
+    }
+
+    internal sealed class PromptFeedback
+    {
+        public SafetyRating[] SafetyRatings { get; set; }
+    }
+
+    internal sealed class Candidate
+    {
+        public Content Content { get; set; }
+        public string FinishReason { get; set; }
+        public int Index { get; set; }
+        public SafetyRating[] SafetyRatings { get; set; }
+    }
+
+    internal sealed class Content
+    {
+        public Part[] Parts { get; set; }
+        public string Role { get; set; }
+    }
+
+    internal sealed class Part
+    {
+        // This one interests us the most
+        public string Text { get; set; }
+    }
+
+    internal sealed class SafetyRating
+    {
+        public string Category { get; set; }
+        public string Probability { get; set; }
+    }
+}
+
+
+================================================
+File: GenAIWithGemini/Model/PromptRequest.cs
+================================================
+﻿namespace GenAIWithGemini.Model
+{
+    public class PromptRequest
+    {
+        public string Prompt { get; set; }
+    }
+}
+
+
+================================================
+File: GenAIWithGemini/Properties/launchSettings.json
+================================================
+﻿{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "iisSettings": {
+    "windowsAuthentication": false,
+    "anonymousAuthentication": true,
+    "iisExpress": {
+      "applicationUrl": "http://localhost:38459",
+      "sslPort": 44388
+    }
+  },
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "http://localhost:5269",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "https://localhost:7205;http://localhost:5269",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "IIS Express": {
+      "commandName": "IISExpress",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
+
+
+================================================
+File: geminiaiUI/README.md
+================================================
+# Getting Started with Create React App
+
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+
+## Available Scripts
+
+In the project directory, you can run:
+
+### `npm start`
+
+Runs the app in the development mode.\
+Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+
+The page will reload when you make changes.\
+You may also see any lint errors in the console.
+
+### `npm test`
+
+Launches the test runner in the interactive watch mode.\
+See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+
+### `npm run build`
+
+Builds the app for production to the `build` folder.\
+It correctly bundles React in production mode and optimizes the build for the best performance.
+
+The build is minified and the filenames include the hashes.\
+Your app is ready to be deployed!
+
+See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+
+### `npm run eject`
+
+**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+
+If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+
+You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+
+## Learn More
+
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+
+To learn React, check out the [React documentation](https://reactjs.org/).
+
+### Code Splitting
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+
+### Analyzing the Bundle Size
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+
+### Making a Progressive Web App
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+
+### Advanced Configuration
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+
+### Deployment
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+
+### `npm run build` fails to minify
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+
+================================================
+File: geminiaiUI/package.json
+================================================
+{
+  "name": "gemini-ai-agent-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cra-template": "1.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "web-vitals": "^4.2.4"
+  }
+}
+
+
+================================================
+File: geminiaiUI/.gitignore
+================================================
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+================================================
+File: geminiaiUI/public/index.html
+================================================
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Web site created using create-react-app"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <!--
+      Notice the use of %PUBLIC_URL% in the tags above.
+      It will be replaced with the URL of the `public` folder during the build.
+      Only files inside the `public` folder can be referenced from the HTML.
+
+      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+      work correctly both with client-side routing and a non-root public URL.
+      Learn how to configure a non-root public URL by running `npm run build`.
+    -->
+    <title>React App</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
+
+      You can add webfonts, meta tags, or analytics to this file.
+      The build step will place the bundled scripts into the <body> tag.
+
+      To begin the development, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+  </body>
+</html>
+
+
+================================================
+File: geminiaiUI/public/manifest.json
+================================================
+{
+  "short_name": "React App",
+  "name": "Create React App Sample",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
+
+
+================================================
+File: geminiaiUI/public/robots.txt
+================================================
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Disallow:
+
+
+================================================
+File: geminiaiUI/src/App.css
+================================================
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f5f5f5;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;  /* Align items to the top */
+  height: 100vh;
+  margin: 0;
+  padding-top: 50px;  /* Add padding to push content a bit down */
+}
+
+.container {
+  background-color: #ffffff;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+  padding: 2rem;
+  border-radius: 10px;
+  width: 100%;  /* Cover full width */
+  max-width: 1200px;  /* Max width for large screens */
+  margin: 0 20px;  /* Add some margin */
+  text-align: center;
+}
+
+h1 {
+  color: #333333;
+  margin-bottom: 1.5rem;
+}
+
+input {
+  width: 100%;
+  padding: 0.5rem;
+  margin: 0.5rem 0 1rem 0;
+  border: 1px solid #cccccc;
+  border-radius: 5px;
+}
+
+button {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: #007bff;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+.response-container {
+  margin-top: 2rem;
+  padding: 1rem;
+  background-color: #f0f0f0;
+  border-radius: 5px;
+  width: 100%;
+  max-height: 400px; /* Set a max height for the scroll area */
+  overflow-y: auto; /* Enable vertical scrolling */
+  white-space: pre-wrap; /* Enable word wrapping */
+  text-align: left;
+}
+
+.response-container h2 {
+  color: #007bff;
+  margin-bottom: 0.5rem;
+}
+
+.loader {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  animation: spin 2s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+
+================================================
+File: geminiaiUI/src/App.js
+================================================
+import React from 'react';
+import './App.css';
+import AIAgent from './components/AIAgent';
+
+function App() {
+    return (
+        <div className="App">
+            <header className="App-header">
+                <AIAgent />
+            </header>
+        </div>
+    );
+}
+
+export default App;
+
+
+================================================
+File: geminiaiUI/src/App.test.js
+================================================
+import { render, screen } from '@testing-library/react';
+import App from './App';
+
+test('renders learn react link', () => {
+  render(<App />);
+  const linkElement = screen.getByText(/learn react/i);
+  expect(linkElement).toBeInTheDocument();
+});
+
+
+================================================
+File: geminiaiUI/src/index.css
+================================================
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+
+================================================
+File: geminiaiUI/src/index.js
+================================================
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();
+
+
+================================================
+File: geminiaiUI/src/reportWebVitals.js
+================================================
+const reportWebVitals = onPerfEntry => {
+  if (onPerfEntry && onPerfEntry instanceof Function) {
+    import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {
+      getCLS(onPerfEntry);
+      getFID(onPerfEntry);
+      getFCP(onPerfEntry);
+      getLCP(onPerfEntry);
+      getTTFB(onPerfEntry);
+    });
+  }
+};
+
+export default reportWebVitals;
+
+
+================================================
+File: geminiaiUI/src/setupTests.js
+================================================
+// jest-dom adds custom jest matchers for asserting on DOM nodes.
+// allows you to do things like:
+// expect(element).toHaveTextContent(/react/i)
+// learn more: https://github.com/testing-library/jest-dom
+import '@testing-library/jest-dom';
+
+
+================================================
+File: geminiaiUI/src/components/AIAgent.js
+================================================
+import React, { useState } from 'react';
+import axios from 'axios';
+import '../App.css';
+
+const AIAgent = () => {
+    const [prompt, setPrompt] = useState('');
+    const [response, setResponse] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleInputChange = (e) => {
+        setPrompt(e.target.value);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            const result = await axios.post('https://localhost:7205/GeminiAI/generate', { prompt: prompt });
+            setResponse(result.data);
+        } catch (error) {
+            console.error('Error generating content:', error);
+            if (error.response) {
+                console.log('Status:', error.response.status);
+                console.log('Data:', error.response.data);
+                console.log('Headers:', error.response.headers);
+            } else {
+                console.log('Error:', error.message);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="container">
+            <h1>Gemini AI Agent</h1>
+            <form onSubmit={handleSubmit}>
+                <input
+                    type="text"
+                    value={prompt}
+                    onChange={handleInputChange}
+                    placeholder="Enter your prompt"
+                />
+                <button type="submit">Generate</button>
+            </form>
+            {loading ? (
+                <div className="response-container">
+                    <div className="loader"></div>
+                </div>
+            ) : (
+                response && (
+                    <div className="response-container">
+                        <h2>Response:</h2>
+                        <p>{response}</p>
+                    </div>
+                )
+            )}
+        </div>
+    );
+};
+
+export default AIAgent;
+
+
+================================================
+File: geminiaiUIApp/README.md
+================================================
+# Getting Started with Create React App
+
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+
+## Available Scripts
+
+In the project directory, you can run:
+
+### `npm start`
+
+Runs the app in the development mode.\
+Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+
+The page will reload when you make changes.\
+You may also see any lint errors in the console.
+
+### `npm test`
+
+Launches the test runner in the interactive watch mode.\
+See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+
+### `npm run build`
+
+Builds the app for production to the `build` folder.\
+It correctly bundles React in production mode and optimizes the build for the best performance.
+
+The build is minified and the filenames include the hashes.\
+Your app is ready to be deployed!
+
+See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+
+### `npm run eject`
+
+**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+
+If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+
+You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+
+## Learn More
+
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+
+To learn React, check out the [React documentation](https://reactjs.org/).
+
+### Code Splitting
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+
+### Analyzing the Bundle Size
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+
+### Making a Progressive Web App
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+
+### Advanced Configuration
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+
+### Deployment
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+
+### `npm run build` fails to minify
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+
+================================================
+File: geminiaiUIApp/package.json
+================================================
+{
+  "name": "gemini-ai-agent-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cra-template": "1.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "web-vitals": "^4.2.4"
+  }
+}
+
+
+================================================
+File: geminiaiUIApp/.gitignore
+================================================
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+================================================
+File: geminiaiUIApp/public/index.html
+================================================
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Web site created using create-react-app"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <!--
+      Notice the use of %PUBLIC_URL% in the tags above.
+      It will be replaced with the URL of the `public` folder during the build.
+      Only files inside the `public` folder can be referenced from the HTML.
+
+      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+      work correctly both with client-side routing and a non-root public URL.
+      Learn how to configure a non-root public URL by running `npm run build`.
+    -->
+    <title>React App</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
+
+      You can add webfonts, meta tags, or analytics to this file.
+      The build step will place the bundled scripts into the <body> tag.
+
+      To begin the development, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+  </body>
+</html>
+
+
+================================================
+File: geminiaiUIApp/public/manifest.json
+================================================
+{
+  "short_name": "React App",
+  "name": "Create React App Sample",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
+
+
+================================================
+File: geminiaiUIApp/public/robots.txt
+================================================
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Disallow:
+
+
+================================================
+File: geminiaiUIApp/src/App.css
+================================================
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f5f5f5;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;  /* Align items to the top */
+  height: 100vh;
+  margin: 0;
+  padding-top: 50px;  /* Add padding to push content a bit down */
+}
+
+.container {
+  background-color: #ffffff;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+  padding: 2rem;
+  border-radius: 10px;
+  width: 100%;  /* Cover full width */
+  max-width: 1200px;  /* Max width for large screens */
+  margin: 0 20px;  /* Add some margin */
+  text-align: center;
+}
+
+h1 {
+  color: #333333;
+  margin-bottom: 1.5rem;
+}
+
+input {
+  width: 100%;
+  padding: 0.5rem;
+  margin: 0.5rem 0 1rem 0;
+  border: 1px solid #cccccc;
+  border-radius: 5px;
+}
+
+button {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: #007bff;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+.response-container {
+  margin-top: 2rem;
+  padding: 1rem;
+  background-color: #f0f0f0;
+  border-radius: 5px;
+  width: 100%;
+  max-height: 400px; /* Set a max height for the scroll area */
+  overflow-y: auto; /* Enable vertical scrolling */
+  white-space: pre-wrap; /* Enable word wrapping */
+  text-align: left;
+}
+
+.response-container h2 {
+  color: #007bff;
+  margin-bottom: 0.5rem;
+}
+
+.loader {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  animation: spin 2s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+
+================================================
+File: geminiaiUIApp/src/App.js
+================================================
+import React from 'react';
+import './App.css';
+import AIAgent from './components/AIAgent';
+
+function App() {
+    return (
+        <div className="App">
+            <header className="App-header">
+                <AIAgent />
+            </header>
+        </div>
+    );
+}
+
+export default App;
+
+
+================================================
+File: geminiaiUIApp/src/App.test.js
+================================================
+import { render, screen } from '@testing-library/react';
+import App from './App';
+
+test('renders learn react link', () => {
+  render(<App />);
+  const linkElement = screen.getByText(/learn react/i);
+  expect(linkElement).toBeInTheDocument();
+});
+
+
+================================================
+File: geminiaiUIApp/src/index.css
+================================================
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+
+================================================
+File: geminiaiUIApp/src/index.js
+================================================
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();
+
+
+================================================
+File: geminiaiUIApp/src/reportWebVitals.js
+================================================
+const reportWebVitals = onPerfEntry => {
+  if (onPerfEntry && onPerfEntry instanceof Function) {
+    import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {
+      getCLS(onPerfEntry);
+      getFID(onPerfEntry);
+      getFCP(onPerfEntry);
+      getLCP(onPerfEntry);
+      getTTFB(onPerfEntry);
+    });
+  }
+};
+
+export default reportWebVitals;
+
+
+================================================
+File: geminiaiUIApp/src/setupTests.js
+================================================
+// jest-dom adds custom jest matchers for asserting on DOM nodes.
+// allows you to do things like:
+// expect(element).toHaveTextContent(/react/i)
+// learn more: https://github.com/testing-library/jest-dom
+import '@testing-library/jest-dom';
+
+
+================================================
+File: geminiaiUIApp/src/components/AIAgent.js
+================================================
+import React, { useState } from 'react';
+import axios from 'axios';
+import '../App.css';
+
+const AIAgent = () => {
+    const [prompt, setPrompt] = useState('');
+    const [response, setResponse] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleInputChange = (e) => {
+        setPrompt(e.target.value);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            const result = await axios.post('https://localhost:7205/GeminiAI/generate', { prompt: prompt });
+            setResponse(result.data);
+        } catch (error) {
+            console.error('Error generating content:', error);
+            if (error.response) {
+                console.log('Status:', error.response.status);
+                console.log('Data:', error.response.data);
+                console.log('Headers:', error.response.headers);
+            } else {
+                console.log('Error:', error.message);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="container">
+            <h1>Gemini AI Agent</h1>
+            <form onSubmit={handleSubmit}>
+                <input
+                    type="text"
+                    value={prompt}
+                    onChange={handleInputChange}
+                    placeholder="Enter your prompt"
+                />
+                <button type="submit">Generate</button>
+            </form>
+            {loading ? (
+                <div className="response-container">
+                    <div className="loader"></div>
+                </div>
+            ) : (
+                response && (
+                    <div className="response-container">
+                        <h2>Response:</h2>
+                        <p>{response}</p>
+                    </div>
+                )
+            )}
+        </div>
+    );
+};
+
+export default AIAgent;
+
+
