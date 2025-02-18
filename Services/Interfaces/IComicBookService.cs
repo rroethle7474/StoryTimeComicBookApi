@@ -14,4 +14,6 @@ public interface IComicBookService
     Task<SceneUpdateResponse> UpdateSceneAsync(string sceneId, SceneUpdateRequest request);
     Task<SceneDeleteResponse> DeleteSceneAsync(string sceneId);
     IAsyncEnumerable<GenerateStoryResponse> GenerateSceneStoryAsync(GenerateStoryRequest request);
+    Task<IEnumerable<ComicBookListResponse>> GetIncompleteComicBooksAsync();
+    Task<IEnumerable<SceneGetResponse>> GetScenesAsync(string comicBookId);
 } 

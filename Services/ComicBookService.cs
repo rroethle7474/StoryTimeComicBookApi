@@ -31,7 +31,8 @@ public class ComicBookService : IComicBookService
             Title = request.Title,
             Description = request.Description,
             CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow,
+            IsCompleted = false
         };
 
         _context.ComicBooks.Add(comicBook);
@@ -65,6 +66,7 @@ public class ComicBookService : IComicBookService
             ComicBookId = comicBook.ComicBookId.ToString(),
             Title = comicBook.Title,
             Description = comicBook.Description,
+            IsCompleted = comicBook.IsCompleted,
             Scenes = comicBook.Scenes
                 .OrderBy(s => s.SceneOrder)
                 .Select(s => new SceneGetResponse
@@ -96,6 +98,13 @@ public class ComicBookService : IComicBookService
         {
             comicBook.Description = request.Description;
         }
+
+        if (request.IsCompleted != null)
+        {
+            comicBook.IsCompleted = request.IsCompleted.Value;
+        }
+
+
         comicBook.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -104,7 +113,8 @@ public class ComicBookService : IComicBookService
         {
             ComicBookId = comicBook.ComicBookId.ToString(),
             Title = comicBook.Title,
-            Description = comicBook.Description
+            Description = comicBook.Description,
+            IsCompleted = comicBook.IsCompleted
         };
     }
 
@@ -270,5 +280,47 @@ public class ComicBookService : IComicBookService
             StoryTextChunk = string.Empty,
             IsComplete = true
         };
+    }
+
+    public async Task<IEnumerable<ComicBookListResponse>> GetIncompleteComicBooksAsync()
+    {
+        var incompleteComics = await _context.ComicBooks
+            .Where(cb => !cb.IsCompleted)
+            .Select(cb => new ComicBookListResponse
+            {
+                ComicBookId = cb.ComicBookId.ToString(),
+                Title = cb.Title,
+                Description = cb.Description,
+                IsCompleted = cb.IsCompleted,
+                CreatedAt = cb.CreatedAt,
+                UpdatedAt = cb.UpdatedAt
+            })
+            .ToListAsync();
+
+        return incompleteComics;
+    }
+
+    public async Task<IEnumerable<SceneGetResponse>> GetScenesAsync(string comicBookId)
+    {
+        var id = Guid.Parse(comicBookId);
+        var comicBook = await _context.ComicBooks
+            .Include(cb => cb.Scenes)
+            .FirstOrDefaultAsync(cb => cb.ComicBookId == id);
+
+        if (comicBook == null)
+        {
+            throw new KeyNotFoundException($"Comic book with ID {comicBookId} not found");
+        }
+
+        return comicBook.Scenes
+            .OrderBy(s => s.SceneOrder)
+            .Select(s => new SceneGetResponse
+            {
+                SceneId = s.SceneId.ToString(),
+                SceneOrder = s.SceneOrder,
+                ImagePath = s.ImagePath,
+                UserDescription = s.UserDescription,
+                AiGeneratedStory = s.AiGeneratedStory
+            });
     }
 } 

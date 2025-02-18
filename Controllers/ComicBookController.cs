@@ -257,4 +257,48 @@ public class ComicBookController : ControllerBase
                 ex.Message));
         }
     }
+
+    [HttpGet("incomplete")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<ComicBookListResponse>>>> GetIncompleteComicBooks()
+    {
+        try
+        {
+            var response = await _comicBookService.GetIncompleteComicBooksAsync();
+            return Ok(ApiResponse<IEnumerable<ComicBookListResponse>>.Success(response));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving incomplete comic books");
+            return StatusCode(500, ApiResponse<IEnumerable<ComicBookListResponse>>.Failure(
+                "An error occurred while retrieving incomplete comic books",
+                "COMIC_LIST_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("{comicBookId}/scenes")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<SceneGetResponse>>>> GetScenes(string comicBookId)
+    {
+        try
+        {
+            var response = await _comicBookService.GetScenesAsync(comicBookId);
+            return Ok(ApiResponse<IEnumerable<SceneGetResponse>>.Success(response));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Comic book not found");
+            return NotFound(ApiResponse<IEnumerable<SceneGetResponse>>.Failure(
+                "Comic book not found",
+                "COMIC_NOT_FOUND",
+                ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving scenes");
+            return StatusCode(500, ApiResponse<IEnumerable<SceneGetResponse>>.Failure(
+                "An error occurred while retrieving the scenes",
+                "SCENES_RETRIEVE_ERROR",
+                ex.Message));
+        }
+    }
 }

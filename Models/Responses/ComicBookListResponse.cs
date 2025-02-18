@@ -1,10 +1,11 @@
 namespace StoryTimeComicBookApi.Models.Responses;
 
-public class ComicBookGetResponse
+public class ComicBookListResponse
 {
     public string ComicBookId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
-    public string? Description { get; set; }
+    public string Description { get; set; } = string.Empty;
     public bool IsCompleted { get; set; }
-    public List<SceneGetResponse> Scenes { get; set; } = new();
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 } 
