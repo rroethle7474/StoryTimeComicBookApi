@@ -2,6 +2,7 @@
 using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Interfaces;
+using StoryTimeComicBookApi.Models.Common;
 
 namespace StoryTimeComicBookApi.Controllers;
 
@@ -19,62 +20,74 @@ public class VoiceMimickingController : ControllerBase
     }
 
     [HttpPost("start-recording")]
-    public ActionResult<StartRecordingResponse> StartRecording()
+    public ActionResult<ApiResponse<StartRecordingResponse>> StartRecording()
     {
         try
         {
             var response = _voiceMimickingService.StartRecording();
-            return Ok(response);
+            return Ok(ApiResponse<StartRecordingResponse>.Success(response));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting recording session");
-            return StatusCode(500, "An error occurred while starting the recording session");
+            return StatusCode(500, ApiResponse<StartRecordingResponse>.Failure(
+                "An error occurred while starting the recording session",
+                "RECORDING_START_ERROR",
+                ex.Message));
         }
     }
 
     [HttpPost("upload-snippet")]
-    public async Task<ActionResult<AudioSnippetUploadResponse>> UploadSnippet([FromForm] AudioSnippetUploadRequest request)
+    public async Task<ActionResult<ApiResponse<AudioSnippetUploadResponse>>> UploadSnippet([FromForm] AudioSnippetUploadRequest request)
     {
         try
         {
             var response = await _voiceMimickingService.UploadAudioSnippetAsync(request);
-            return Ok(response);
+            return Ok(ApiResponse<AudioSnippetUploadResponse>.Success(response));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error uploading audio snippet");
-            return StatusCode(500, "An error occurred while uploading the audio snippet");
+            return StatusCode(500, ApiResponse<AudioSnippetUploadResponse>.Failure(
+                "An error occurred while uploading the audio snippet",
+                "UPLOAD_SNIPPET_ERROR",
+                ex.Message));
         }
     }
 
     [HttpPost("train-model")]
-    public async Task<ActionResult<TrainModelResponse>> TrainModel([FromBody] TrainModelRequest request)
+    public async Task<ActionResult<ApiResponse<TrainModelResponse>>> TrainModel([FromBody] TrainModelRequest request)
     {
         try
         {
             var response = await _voiceMimickingService.TrainModelAsync(request);
-            return Ok(response);
+            return Ok(ApiResponse<TrainModelResponse>.Success(response));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error training voice model");
-            return StatusCode(500, "An error occurred while training the voice model");
+            return StatusCode(500, ApiResponse<TrainModelResponse>.Failure(
+                "An error occurred while training the voice model",
+                "VOICE_TRAIN_ERROR",
+                ex.Message));
         }
     }
 
     [HttpPost("synthesize-speech")]
-    public async Task<ActionResult<SynthesizeSpeechResponse>> SynthesizeSpeech([FromBody] SynthesizeSpeechRequest request)
+    public async Task<ActionResult<ApiResponse<SynthesizeSpeechResponse>>> SynthesizeSpeech([FromBody] SynthesizeSpeechRequest request)
     {
         try
         {
             var response = await _voiceMimickingService.SynthesizeSpeechAsync(request);
-            return Ok(response);
+            return Ok(ApiResponse<SynthesizeSpeechResponse>.Success(response));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error synthesizing speech");
-            return StatusCode(500, "An error occurred while synthesizing speech");
+            return StatusCode(500, ApiResponse<SynthesizeSpeechResponse>.Failure(
+                "An error occurred while synthesizing speech",
+                "SPEECH_SYNTHESIS_ERROR",
+                ex.Message));
         }
     }
 }

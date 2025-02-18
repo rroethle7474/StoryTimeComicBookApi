@@ -15,7 +15,8 @@ namespace StoryTimeComicBookApi.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-
+            modelBuilder.Entity<ComicBook>().ToTable("ComicBooks", "comic_book_schema");
+            modelBuilder.Entity<Scene>().ToTable("Scenes", "comic_book_schema");
             // Configure relationships and any specific model configurations here, if needed.
             // Example: modelBuilder.Entity<Scene>().HasOne(s => s.ComicBook).WithMany(cb => cb.Scenes).HasForeignKey(s => s.ComicBookId);
         }

@@ -35,7 +35,15 @@ public class ComicBookService : IComicBookService
         };
 
         _context.ComicBooks.Add(comicBook);
-        await _context.SaveChangesAsync(); // Save changes to the database
+        try
+        {
+            await _context.SaveChangesAsync(); // Save changes to the database
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating comic book");
+            throw;
+        }
 
         return new ComicBookCreateResponse { ComicBookId = comicBook.ComicBookId.ToString(), Title = comicBook.Title };
     }

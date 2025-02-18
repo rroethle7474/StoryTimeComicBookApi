@@ -30,6 +30,18 @@ builder.Services.AddDbContext<VoiceMimicDataContext>(options =>
 builder.Services.AddScoped<IAudioStorageService, AudioStorageService>();
 builder.Services.AddScoped<IVoiceModelTrainer, VoiceModelTrainer>();
 
+// Add CORS services
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAllOrigins",
+        builder =>
+        {
+            builder.AllowAnyOrigin()
+                   .AllowAnyMethod()
+                   .AllowAnyHeader();
+        });
+});
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -44,6 +56,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Use CORS middleware
+app.UseCors("AllowAllOrigins");
 
 app.UseAuthorization();
 
