@@ -1,14 +1,15 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace StoryTimeComicBookApi.Data.Entities
+namespace StoryTimeComicBookApi.Data.Entities;
+public class VoiceModel
 {
-    public class VoiceModel
-    {
-        [Key]
-        public Guid VoiceModelId { get; set; } // UUID or int
-        [MaxLength(255)]
-        public string? VoiceModelName { get; set; }
-        public DateTime TrainingDate { get; set; }
-        // Add other properties as needed
-    }
+    [Key]
+    public Guid VoiceModelId { get; set; } // UUID or int
+    [MaxLength(255)]
+    public string VoiceModelName { get; set; } = string.Empty;
+    [MaxLength(1000)]
+    public string VoiceModelDescription { get; set; } = string.Empty;
+    public bool IsCompleted { get; set; }
+    public DateTime TrainingDate { get; set; }
+    // Add other properties as needed
 }

@@ -212,6 +212,11 @@ public class ComicBookService : IComicBookService
         {
             scene.AiGeneratedStory = request.AiGeneratedStory;
         }
+
+        if (request.SceneOrder != null)
+        {
+            scene.SceneOrder = request.SceneOrder.Value;
+        }
         scene.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();

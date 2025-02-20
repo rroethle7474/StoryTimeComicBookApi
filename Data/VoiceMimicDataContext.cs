@@ -15,6 +15,8 @@ namespace StoryTimeComicBookApi.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<AudioSnippet>().ToTable("AudioSnippets", "voice_mimic_schema");
+            modelBuilder.Entity<VoiceModel>().ToTable("VoiceModels", "voice_mimic_schema");
         }
     }
 }

@@ -26,6 +26,96 @@ public class VoiceMimickingService : IVoiceMimickingService
         _modelTrainer = modelTrainer;
     }
 
+    public async Task<CreateVoiceModelResponse> CreateVoiceModelAsync(CreateVoiceModelRequest request)
+    {
+        // search for a duplicate model name in the database (trimed and case insensitive)
+        try
+        {
+            var duplicateModel = await _context.VoiceModels
+                .Where(v => v.VoiceModelName.Trim().ToLower() == request.VoiceModelName.Trim().ToLower())
+                .FirstOrDefaultAsync();
+
+            if (duplicateModel != null)
+            {
+                throw new InvalidOperationException("A voice model with the same name already exists");
+            }
+
+            // Create a new voice model record
+            var voiceModel = new VoiceModel
+            {
+                VoiceModelName = request.VoiceModelName,
+                VoiceModelDescription = request.VoiceModelDescription
+            };
+
+            _context.VoiceModels.Add(voiceModel);
+            await _context.SaveChangesAsync();
+            return new CreateVoiceModelResponse
+            {
+                VoiceModelId = voiceModel.VoiceModelId.ToString(),
+                VoiceModelName = voiceModel.VoiceModelName,
+                VoiceModelDescription = voiceModel.VoiceModelDescription
+
+            };
+        }
+        catch(Exception ex)
+        {
+            _logger.LogError(ex, "Error creating voice model");
+            throw new Exception(ex.Message);
+        }
+    }
+
+    public async Task<IEnumerable<VoiceModelListResponse>> GetIncompleteVoiceModelsAsync()
+    {
+        var incompleteVoiceModels = await _context.VoiceModels
+            .Where(vm => !vm.IsCompleted)
+            .Select(vm => new VoiceModelListResponse
+            {
+                VoiceModelId = vm.VoiceModelId.ToString(),
+                VoiceModelName = vm.VoiceModelName,
+                VoiceModelDescription = vm.VoiceModelDescription,
+                IsCompleted = vm.IsCompleted,
+                TrainingDate = vm.TrainingDate
+            })
+            .ToListAsync();
+
+        return incompleteVoiceModels;
+    }
+
+    public async Task<VoiceModelUpdateResponse> UpdateVoiceModelAsync(string voiceModelId, VoiceModelUpdateRequest request)
+    {
+        var voiceModel = await _context.VoiceModels.FindAsync(Guid.Parse(voiceModelId));
+        if (voiceModel == null)
+        {
+            throw new KeyNotFoundException("Voice model not found");
+        }
+
+        if (!string.IsNullOrEmpty(request.VoiceModelName))
+        {
+            voiceModel.VoiceModelName = request.VoiceModelName;
+        }
+
+        if (!string.IsNullOrEmpty(request.VoiceModelDescription))
+        {
+            voiceModel.VoiceModelDescription = request.VoiceModelDescription;
+        }
+
+        if (request.IsCompleted.HasValue)
+        {
+            voiceModel.IsCompleted = request.IsCompleted.Value;
+        }
+
+        await _context.SaveChangesAsync();
+
+        return new VoiceModelUpdateResponse
+        {
+            VoiceModelId = voiceModel.VoiceModelId.ToString(),
+            VoiceModelName = voiceModel.VoiceModelName,
+            VoiceModelDescription = voiceModel.VoiceModelDescription,
+            IsCompleted = voiceModel.IsCompleted,
+            TrainingDate = voiceModel.TrainingDate
+        };
+    }
+
     public async Task<SynthesizeSpeechResponse> SynthesizeSpeechAsync(SynthesizeSpeechRequest request)
     {
         try

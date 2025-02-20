@@ -4,5 +4,6 @@ public class SceneUpdateRequest
 {
     public string? ImagePath { get; set; }
     public string? UserDescription { get; set; }
+    public int? SceneOrder { get; set; }
     public string? AiGeneratedStory { get; set; }
 } 

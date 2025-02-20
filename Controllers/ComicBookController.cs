@@ -301,4 +301,43 @@ public class ComicBookController : ControllerBase
                 ex.Message));
         }
     }
+
+    [HttpPost("upload/scene-image")]
+    public async Task<ActionResult<ApiResponse<ImageUploadResponse>>> UploadSceneImage(IFormFile file)
+    {
+        try
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest(ApiResponse<ImageUploadResponse>.Failure("No file uploaded"));
+
+            // Create uploads directory if it doesn't exist
+            var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "scenes");
+            Directory.CreateDirectory(uploadsDir);
+
+            // Generate unique filename
+            var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+            var filePath = Path.Combine(uploadsDir, fileName);
+
+            // Save file
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            // Return relative path that will be stored in database
+            var relativePath = $"/uploads/scenes/{fileName}";
+            
+            return Ok(ApiResponse<ImageUploadResponse>.Success(new ImageUploadResponse 
+            { 
+                ImagePath = relativePath 
+            }));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ApiResponse<ImageUploadResponse>.Failure(
+                "Error uploading image",
+                "IMAGE_UPLOAD_ERROR",
+                ex.Message));
+        }
+    }
 }
