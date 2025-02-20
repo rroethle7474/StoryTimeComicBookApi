@@ -12,4 +12,15 @@ public interface IVoiceMimickingService
     Task<AudioSnippetUploadResponse> UploadAudioSnippetAsync(AudioSnippetUploadRequest request);
     Task<TrainModelResponse> TrainModelAsync(TrainModelRequest request);
     StartRecordingResponse StartRecording();
+    
+    // New methods
+    Task<AudioSnippetUploadResponse> AddAudioSnippetToModelAsync(string voiceModelId, AudioSnippetUploadRequest request);
+    Task<bool> DeleteAudioSnippetAsync(string audioSnippetId);
+    Task<IEnumerable<AudioSnippetResponse>> GetAudioSnippetsForModelAsync(string voiceModelId);
+    Task<TrainModelResponse> InitiateModelTrainingAsync(string voiceModelId);
+
+    Task<VoiceModelStepsProgress> GetVoiceModelProgressAsync(string voiceModelId);
+    Task<IEnumerable<StepResponse>> GetAllStepsAsync();
+    Task<AudioSnippetUploadResponse> AddAudioSnippetForStepAsync(string voiceModelId, string stepId, AudioSnippetUploadRequest request);
+    Task<IEnumerable<StepWithRecordingResponse>> GetStepRecordingsForModelAsync(string voiceModelId);
 } 

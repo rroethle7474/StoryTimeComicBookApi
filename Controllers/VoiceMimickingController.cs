@@ -154,4 +154,114 @@ public class VoiceMimickingController : ControllerBase
                 ex.Message));
         }
     }
+
+    [HttpPost("voice-model/{voiceModelId}/audio-snippet")]
+    public async Task<ActionResult<ApiResponse<AudioSnippetUploadResponse>>> AddAudioSnippetToModel(
+       string voiceModelId,
+       [FromForm] AudioSnippetUploadRequest request)
+    {
+        try
+        {
+            if (request.AudioFile == null || request.AudioFile.Length == 0)
+            {
+                return BadRequest(ApiResponse<AudioSnippetUploadResponse>.Failure(
+                    "No audio file provided",
+                    "AUDIO_FILE_REQUIRED"));
+            }
+
+            var response = await _voiceMimickingService.AddAudioSnippetToModelAsync(voiceModelId, request);
+            return Ok(ApiResponse<AudioSnippetUploadResponse>.Success(response));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding audio snippet to voice model {VoiceModelId}", voiceModelId);
+            return StatusCode(500, ApiResponse<AudioSnippetUploadResponse>.Failure(
+                "An error occurred while adding the audio snippet",
+                "AUDIO_SNIPPET_ADD_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpDelete("audio-snippet/{audioSnippetId}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteAudioSnippet(string audioSnippetId)
+    {
+        try
+        {
+            var result = await _voiceMimickingService.DeleteAudioSnippetAsync(audioSnippetId);
+            if (!result)
+            {
+                return NotFound(ApiResponse<bool>.Failure(
+                    "Audio snippet not found",
+                    "AUDIO_SNIPPET_NOT_FOUND"));
+            }
+
+            return Ok(ApiResponse<bool>.Success(true));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting audio snippet {AudioSnippetId}", audioSnippetId);
+            return StatusCode(500, ApiResponse<bool>.Failure(
+                "An error occurred while deleting the audio snippet",
+                "AUDIO_SNIPPET_DELETE_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("voice-model/{voiceModelId}/audio-snippets")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<AudioSnippetResponse>>>> GetAudioSnippetsForModel(
+        string voiceModelId)
+    {
+        try
+        {
+            var snippets = await _voiceMimickingService.GetAudioSnippetsForModelAsync(voiceModelId);
+            return Ok(ApiResponse<IEnumerable<AudioSnippetResponse>>.Success(snippets));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Voice model not found {VoiceModelId}", voiceModelId);
+            return NotFound(ApiResponse<IEnumerable<AudioSnippetResponse>>.Failure(
+                "Voice model not found",
+                "VOICE_MODEL_NOT_FOUND"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving audio snippets for voice model {VoiceModelId}", voiceModelId);
+            return StatusCode(500, ApiResponse<IEnumerable<AudioSnippetResponse>>.Failure(
+                "An error occurred while retrieving audio snippets",
+                "AUDIO_SNIPPETS_RETRIEVE_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpPost("voice-model/{voiceModelId}/train")]
+    public async Task<ActionResult<ApiResponse<TrainModelResponse>>> InitiateModelTraining(string voiceModelId)
+    {
+        try
+        {
+            var response = await _voiceMimickingService.InitiateModelTrainingAsync(voiceModelId);
+            return Ok(ApiResponse<TrainModelResponse>.Success(response));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Voice model not found {VoiceModelId}", voiceModelId);
+            return NotFound(ApiResponse<TrainModelResponse>.Failure(
+                "Voice model not found",
+                "VOICE_MODEL_NOT_FOUND"));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Invalid operation for voice model {VoiceModelId}", voiceModelId);
+            return BadRequest(ApiResponse<TrainModelResponse>.Failure(
+                ex.Message,
+                "INVALID_OPERATION"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initiating training for voice model {VoiceModelId}", voiceModelId);
+            return StatusCode(500, ApiResponse<TrainModelResponse>.Failure(
+                "An error occurred while initiating model training",
+                "TRAINING_INITIATION_ERROR",
+                ex.Message));
+        }
+    }
 }
