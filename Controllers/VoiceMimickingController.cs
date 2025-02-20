@@ -264,4 +264,109 @@ public class VoiceMimickingController : ControllerBase
                 ex.Message));
         }
     }
+
+    [HttpGet("steps")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<StepResponse>>>> GetAllSteps()
+    {
+        try
+        {
+            var steps = await _voiceMimickingService.GetAllStepsAsync();
+            return Ok(ApiResponse<IEnumerable<StepResponse>>.Success(steps));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving recording steps");
+            return StatusCode(500, ApiResponse<IEnumerable<StepResponse>>.Failure(
+                "An error occurred while retrieving recording steps",
+                "STEPS_RETRIEVE_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("voice-model/{voiceModelId}/progress")]
+    public async Task<ActionResult<ApiResponse<VoiceModelStepsProgress>>> GetVoiceModelProgress(string voiceModelId)
+    {
+        try
+        {
+            var progress = await _voiceMimickingService.GetVoiceModelProgressAsync(voiceModelId);
+            return Ok(ApiResponse<VoiceModelStepsProgress>.Success(progress));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Voice model not found {VoiceModelId}", voiceModelId);
+            return NotFound(ApiResponse<VoiceModelStepsProgress>.Failure(
+                "Voice model not found",
+                "VOICE_MODEL_NOT_FOUND"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving voice model progress {VoiceModelId}", voiceModelId);
+            return StatusCode(500, ApiResponse<VoiceModelStepsProgress>.Failure(
+                "An error occurred while retrieving voice model progress",
+                "PROGRESS_RETRIEVE_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("voice-model/{voiceModelId}/step-recordings")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<StepWithRecordingResponse>>>> GetStepRecordings(string voiceModelId)
+    {
+        try
+        {
+            var recordings = await _voiceMimickingService.GetStepRecordingsForModelAsync(voiceModelId);
+            return Ok(ApiResponse<IEnumerable<StepWithRecordingResponse>>.Success(recordings));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Voice model not found {VoiceModelId}", voiceModelId);
+            return NotFound(ApiResponse<IEnumerable<StepWithRecordingResponse>>.Failure(
+                "Voice model not found",
+                "VOICE_MODEL_NOT_FOUND"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving step recordings for voice model {VoiceModelId}", voiceModelId);
+            return StatusCode(500, ApiResponse<IEnumerable<StepWithRecordingResponse>>.Failure(
+                "An error occurred while retrieving step recordings",
+                "RECORDINGS_RETRIEVE_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpPost("voice-model/{voiceModelId}/step/{stepId}/recording")]
+    public async Task<ActionResult<ApiResponse<AudioSnippetUploadResponse>>> AddStepRecording(
+        string voiceModelId,
+        string stepId,
+        [FromForm] AudioSnippetUploadRequest request)
+    {
+        try
+        {
+            if (request.AudioFile == null || request.AudioFile.Length == 0)
+            {
+                return BadRequest(ApiResponse<AudioSnippetUploadResponse>.Failure(
+                    "No audio file provided",
+                    "AUDIO_FILE_REQUIRED"));
+            }
+
+            var response = await _voiceMimickingService.AddAudioSnippetForStepAsync(voiceModelId, stepId, request);
+            return Ok(ApiResponse<AudioSnippetUploadResponse>.Success(response));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Step or voice model not found. VoiceModelId: {VoiceModelId}, StepId: {StepId}",
+                voiceModelId, stepId);
+            return NotFound(ApiResponse<AudioSnippetUploadResponse>.Failure(
+                ex.Message,
+                "RESOURCE_NOT_FOUND"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding recording for step {StepId} in voice model {VoiceModelId}",
+                stepId, voiceModelId);
+            return StatusCode(500, ApiResponse<AudioSnippetUploadResponse>.Failure(
+                "An error occurred while adding the recording",
+                "RECORDING_ADD_ERROR",
+                ex.Message));
+        }
+    }
 }

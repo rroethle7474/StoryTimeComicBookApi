@@ -455,4 +455,199 @@ public class VoiceMimickingService : IVoiceMimickingService
             throw;
         }
     }
+
+    public async Task<VoiceModelStepsProgress> GetVoiceModelProgressAsync(string voiceModelId)
+    {
+        try
+        {
+            var id = Guid.Parse(voiceModelId);
+
+            // Get all steps and their recordings for this voice model
+            var steps = await _context.VoiceRecordingSteps
+                .OrderBy(s => s.StepNumber)
+                .Select(s => new
+                {
+                    Step = s,
+                    Recording = _context.VoiceModelAudioSnippets
+                        .Include(v => v.AudioSnippet)
+                        .FirstOrDefault(v => v.VoiceModelId == id && v.StepId == s.StepId)
+                })
+                .ToListAsync();
+
+            var stepsWithRecordings = steps.Select(s => new StepWithRecordingResponse
+            {
+                StepId = s.Step.StepId.ToString(),
+                StepNumber = s.Step.StepNumber,
+                TranscriptText = s.Step.TranscriptText,
+                Recording = s.Recording == null ? null : new AudioRecordingDetails
+                {
+                    AudioSnippetId = s.Recording.AudioSnippetId.ToString(),
+                    AudioFilePath = s.Recording.AudioSnippet.AudioFilePath,
+                    RecordedAt = s.Recording.AddedAt
+                }
+            }).ToList();
+
+            return new VoiceModelStepsProgress
+            {
+                VoiceModelId = voiceModelId,
+                TotalSteps = steps.Count,
+                CompletedSteps = steps.Count(s => s.Recording != null),
+                Steps = stepsWithRecordings
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting voice model progress for {VoiceModelId}", voiceModelId);
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<StepResponse>> GetAllStepsAsync()
+    {
+        try
+        {
+            return await _context.VoiceRecordingSteps
+                .OrderBy(s => s.StepNumber)
+                .Select(s => new StepResponse
+                {
+                    StepId = s.StepId.ToString(),
+                    StepNumber = s.StepNumber,
+                    TranscriptText = s.TranscriptText,
+                    CreatedAt = s.CreatedAt,
+                    UpdatedAt = s.UpdatedAt
+                })
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting all recording steps");
+            throw;
+        }
+    }
+
+    public async Task<AudioSnippetUploadResponse> AddAudioSnippetForStepAsync(
+        string voiceModelId,
+        string stepId,
+        AudioSnippetUploadRequest request)
+    {
+        try
+        {
+            var modelId = Guid.Parse(voiceModelId);
+            var parsedStepId = Guid.Parse(stepId);
+
+            // Check if step exists
+            var stepExists = await _context.VoiceRecordingSteps
+                .AnyAsync(s => s.StepId == parsedStepId);
+
+            if (!stepExists)
+            {
+                throw new KeyNotFoundException($"Step with ID {stepId} not found");
+            }
+
+            // Check if there's an existing recording for this step
+            var existingRecording = await _context.VoiceModelAudioSnippets
+                .FirstOrDefaultAsync(v => v.VoiceModelId == modelId && v.StepId == parsedStepId);
+
+            if (existingRecording != null)
+            {
+                // Delete existing recording
+                var existingAudioSnippet = await _context.AudioSnippets
+                    .FindAsync(existingRecording.AudioSnippetId);
+
+                if (existingAudioSnippet != null)
+                {
+                    // Delete physical file
+                    if (File.Exists(existingAudioSnippet.AudioFilePath))
+                    {
+                        File.Delete(existingAudioSnippet.AudioFilePath);
+                    }
+
+                    _context.AudioSnippets.Remove(existingAudioSnippet);
+                    await _context.SaveChangesAsync();
+                }
+            }
+
+            // Save new audio file
+            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile);
+
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Create audio snippet
+                var audioSnippet = new AudioSnippet
+                {
+                    AudioFilePath = filePath,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                _context.AudioSnippets.Add(audioSnippet);
+                await _context.SaveChangesAsync();
+
+                // Create association with voice model and step
+                var voiceModelAudioSnippet = new VoiceModelAudioSnippet
+                {
+                    VoiceModelId = modelId,
+                    AudioSnippetId = audioSnippet.AudioSnippetId,
+                    StepId = parsedStepId,
+                    AddedAt = DateTime.UtcNow
+                };
+
+                _context.VoiceModelAudioSnippets.Add(voiceModelAudioSnippet);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return new AudioSnippetUploadResponse
+                {
+                    Message = "Audio snippet uploaded and associated with step successfully."
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding audio snippet for step {StepId} in voice model {VoiceModelId}",
+                stepId, voiceModelId);
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<StepWithRecordingResponse>> GetStepRecordingsForModelAsync(string voiceModelId)
+    {
+        try
+        {
+            var id = Guid.Parse(voiceModelId);
+
+            var recordings = await _context.VoiceRecordingSteps
+                .OrderBy(s => s.StepNumber)
+                .Select(s => new StepWithRecordingResponse
+                {
+                    StepId = s.StepId.ToString(),
+                    StepNumber = s.StepNumber,
+                    TranscriptText = s.TranscriptText,
+                    Recording = s.VoiceModelAudioSnippets
+                        .Where(v => v.VoiceModelId == id)
+                        .Select(v => new AudioRecordingDetails
+                        {
+                            AudioSnippetId = v.AudioSnippetId.ToString(),
+                            AudioFilePath = v.AudioSnippet.AudioFilePath,
+                            RecordedAt = v.AddedAt
+                        })
+                        .FirstOrDefault()
+                })
+                .ToListAsync();
+
+            return recordings;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting step recordings for voice model {VoiceModelId}", voiceModelId);
+            throw;
+        }
+    }
 } 
