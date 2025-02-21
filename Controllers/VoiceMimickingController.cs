@@ -157,8 +157,8 @@ public class VoiceMimickingController : ControllerBase
 
     [HttpPost("voice-model/{voiceModelId}/audio-snippet")]
     public async Task<ActionResult<ApiResponse<AudioSnippetUploadResponse>>> AddAudioSnippetToModel(
-       string voiceModelId,
-       [FromForm] AudioSnippetUploadRequest request)
+        string voiceModelId,
+        [FromForm] AudioSnippetUploadRequest request)
     {
         try
         {
@@ -167,6 +167,13 @@ public class VoiceMimickingController : ControllerBase
                 return BadRequest(ApiResponse<AudioSnippetUploadResponse>.Failure(
                     "No audio file provided",
                     "AUDIO_FILE_REQUIRED"));
+            }
+
+            if (string.IsNullOrEmpty(request.StepId))
+            {
+                return BadRequest(ApiResponse<AudioSnippetUploadResponse>.Failure(
+                    "Step ID is required",
+                    "STEP_ID_REQUIRED"));
             }
 
             var response = await _voiceMimickingService.AddAudioSnippetToModelAsync(voiceModelId, request);

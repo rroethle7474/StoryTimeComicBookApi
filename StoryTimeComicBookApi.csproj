@@ -7,7 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Remove="wwwroot\uploads\audio\91427232-a5c0-41fe-9096-6f547a4464af_recording.wav" />
     <Content Remove="wwwroot\uploads\audio\989aa1a3-8c31-4ce0-a463-dfc10736b8cd_recording.wav" />
     <Content Remove="wwwroot\uploads\audio\9924417b-2b1a-4611-9b90-220293a4f9ce_recording.wav" />
     <Content Remove="wwwroot\uploads\audio\c5347a96-3df0-4534-b482-638a912fe416_recording.wav" />
@@ -20,7 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="wwwroot\uploads\audio\91427232-a5c0-41fe-9096-6f547a4464af_recording.wav" />
     <None Include="wwwroot\uploads\audio\989aa1a3-8c31-4ce0-a463-dfc10736b8cd_recording.wav" />
     <None Include="wwwroot\uploads\audio\9924417b-2b1a-4611-9b90-220293a4f9ce_recording.wav" />
     <None Include="wwwroot\uploads\audio\c5347a96-3df0-4534-b482-638a912fe416_recording.wav" />

@@ -250,8 +250,8 @@ public class VoiceMimickingService : IVoiceMimickingService
     }
 
     public async Task<AudioSnippetUploadResponse> AddAudioSnippetToModelAsync(
-            string voiceModelId,
-            AudioSnippetUploadRequest request)
+    string voiceModelId,
+    AudioSnippetUploadRequest request)
     {
         try
         {
@@ -272,11 +272,12 @@ public class VoiceMimickingService : IVoiceMimickingService
                 _context.AudioSnippets.Add(audioSnippet);
                 await _context.SaveChangesAsync();
 
-                // Create association with voice model
+                // Create association with voice model and step
                 var voiceModelAudioSnippet = new VoiceModelAudioSnippet
                 {
                     VoiceModelId = Guid.Parse(voiceModelId),
                     AudioSnippetId = audioSnippet.AudioSnippetId,
+                    StepId = Guid.Parse(request.StepId!),
                     AddedAt = DateTime.UtcNow
                 };
 
@@ -287,7 +288,8 @@ public class VoiceMimickingService : IVoiceMimickingService
 
                 return new AudioSnippetUploadResponse
                 {
-                    Message = "Audio snippet uploaded and associated with voice model successfully."
+                    Message = "Audio snippet uploaded and associated with voice model successfully.",
+                    AudioSnippetId = audioSnippet.AudioSnippetId.ToString()
                 };
             }
             catch
@@ -317,10 +319,14 @@ public class VoiceMimickingService : IVoiceMimickingService
                 return false;
             }
 
+            // Construct the full path to the audio file
+            var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var fullPath = Path.Combine(webRootPath, audioSnippet.AudioFilePath.TrimStart('/'));
+
             // Delete the physical file
-            if (File.Exists(audioSnippet.AudioFilePath))
+            if (File.Exists(fullPath))
             {
-                File.Delete(audioSnippet.AudioFilePath);
+                File.Delete(fullPath);
             }
 
             // Remove from database (cascade delete will handle associations)
