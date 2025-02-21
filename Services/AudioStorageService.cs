@@ -8,6 +8,7 @@ public class AudioStorageService : IAudioStorageService
     private readonly IConfiguration _configuration;
     private readonly ILogger<AudioStorageService> _logger;
     private readonly string _audioStoragePath;
+    private readonly string _webPath;
 
     public AudioStorageService(
         IConfiguration configuration,
@@ -15,14 +16,19 @@ public class AudioStorageService : IAudioStorageService
     {
         _configuration = configuration;
         _logger = logger;
-        
+
         // Get storage path from configuration, or use default
-        _audioStoragePath = _configuration["AudioStorage:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "AudioStorage");
-        
+        _audioStoragePath = _configuration["AudioStorage:Path"] ?? "wwwroot/uploads/audio";
+        _webPath = "/uploads/audio"; // Web-accessible path
         // Ensure storage directory exists
-        if (!Directory.Exists(_audioStoragePath))
+        // Ensure storage directory exists - handle both absolute and relative paths
+        var fullPath = Path.IsPathRooted(_audioStoragePath)
+            ? _audioStoragePath
+            : Path.Combine(Directory.GetCurrentDirectory(), _audioStoragePath);
+
+        if (!Directory.Exists(fullPath))
         {
-            Directory.CreateDirectory(_audioStoragePath);
+            Directory.CreateDirectory(fullPath);
         }
     }
 
@@ -37,16 +43,23 @@ public class AudioStorageService : IAudioStorageService
 
             // Generate unique filename
             var fileName = $"{Guid.NewGuid()}_{Path.GetFileName(audioFile.FileName)}";
-            var filePath = Path.Combine(_audioStoragePath, fileName);
+
+            // Get full storage path for saving file
+            var fullPath = Path.IsPathRooted(_audioStoragePath)
+                ? Path.Combine(_audioStoragePath, fileName)
+                : Path.Combine(Directory.GetCurrentDirectory(), _audioStoragePath, fileName);
 
             // Save file
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            using (var stream = new FileStream(fullPath, FileMode.Create))
             {
                 await audioFile.CopyToAsync(stream);
             }
 
-            _logger.LogInformation("Audio file saved successfully: {FilePath}", filePath);
-            return filePath;
+            // Return web-accessible path
+            var webPath = $"{_webPath}/{fileName}";
+
+            _logger.LogInformation("Audio file saved successfully. Web path: {WebPath}", webPath);
+            return webPath;
         }
         catch (Exception ex)
         {

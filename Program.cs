@@ -56,6 +56,13 @@ app.UseStaticFiles(new StaticFileOptions
         // Add cache control headers
         ctx.Context.Response.Headers.Append(
             "Cache-Control", "public, max-age=600"); // Cache for 10 minutes
+
+        // Add proper headers for audio files
+        if (ctx.File.Name.EndsWith(".wav") || ctx.File.Name.EndsWith(".mp3"))
+        {
+            ctx.Context.Response.Headers.Append(
+                "Accept-Ranges", "bytes");
+        }
     }
 });
 
