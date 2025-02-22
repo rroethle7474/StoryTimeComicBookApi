@@ -16,4 +16,11 @@ public interface IComicBookService
     IAsyncEnumerable<GenerateStoryResponse> GenerateSceneStoryAsync(GenerateStoryRequest request);
     Task<IEnumerable<ComicBookListResponse>> GetIncompleteComicBooksAsync();
     Task<IEnumerable<SceneGetResponse>> GetScenesAsync(string comicBookId);
+
+    // Asset management methods
+    Task<AssetResponse> CreateAssetAsync(AssetCreateRequest request);
+    Task<AssetResponse> GetAssetAsync(string assetId);
+    Task<AssetResponse> UpdateAssetAsync(string assetId, AssetUpdateRequest request);
+    Task<bool> DeleteAssetAsync(string assetId);
+    Task<IEnumerable<AssetResponse>> GetComicBookAssetsAsync(string comicBookId);
 } 

@@ -9,16 +9,41 @@ namespace StoryTimeComicBookApi.Data
         {
         }
 
-        public DbSet<ComicBook> ComicBooks { get; set; } // DbSet for ComicBook entity
-        public DbSet<Scene> Scenes { get; set; }       // DbSet for Scene entity
+        public DbSet<ComicBook> ComicBooks { get; set; }
+        public DbSet<Scene> Scenes { get; set; }
+        public DbSet<ComicBookAsset> ComicBookAssets { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-            modelBuilder.Entity<ComicBook>().ToTable("ComicBooks", "comic_book_schema");
-            modelBuilder.Entity<Scene>().ToTable("Scenes", "comic_book_schema");
-            // Configure relationships and any specific model configurations here, if needed.
-            // Example: modelBuilder.Entity<Scene>().HasOne(s => s.ComicBook).WithMany(cb => cb.Scenes).HasForeignKey(s => s.ComicBookId);
+            
+            // Set schema
+            modelBuilder.HasDefaultSchema("comic_book_schema");
+
+            // Configure ComicBook
+            modelBuilder.Entity<ComicBook>()
+                .ToTable("ComicBooks");
+
+            // Configure Scene
+            modelBuilder.Entity<Scene>()
+                .ToTable("Scenes")
+                .HasOne(s => s.ComicBook)
+                .WithMany(cb => cb.Scenes)
+                .HasForeignKey(s => s.ComicBookId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Configure ComicBookAsset
+            modelBuilder.Entity<ComicBookAsset>()
+                .ToTable("ComicBookAssets")
+                .HasOne(a => a.ComicBook)
+                .WithMany(cb => cb.Assets)
+                .HasForeignKey(a => a.ComicBookId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Create index for ComicBookAssets.ComicBookId
+            modelBuilder.Entity<ComicBookAsset>()
+                .HasIndex(a => a.ComicBookId)
+                .HasDatabaseName("IX_ComicBookAssets_ComicBookId");
         }
     }
 }

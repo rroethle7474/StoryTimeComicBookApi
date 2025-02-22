@@ -90,23 +90,14 @@ public class ComicBookService : IComicBookService
             throw new KeyNotFoundException($"Comic book with ID {comicBookId} not found");
         }
 
-        if (request.Title != null)
-        {
-            comicBook.Title = request.Title;
-        }
-        if (request.Description != null)
-        {
-            comicBook.Description = request.Description;
-        }
-
-        if (request.IsCompleted != null)
-        {
-            comicBook.IsCompleted = request.IsCompleted.Value;
-        }
-
+        if (request.Title != null) comicBook.Title = request.Title;
+        if (request.Description != null) comicBook.Description = request.Description;
+        if (request.AdditionalDetails != null) comicBook.AdditionalDetails = request.AdditionalDetails;
+        if (request.FinalComicBookPath != null) comicBook.FinalComicBookPath = request.FinalComicBookPath;
+        if (request.GenerationStatus != null) comicBook.GenerationStatus = request.GenerationStatus;
+        if (request.IsCompleted != null) comicBook.IsCompleted = request.IsCompleted.Value;
 
         comicBook.UpdatedAt = DateTime.UtcNow;
-
         await _context.SaveChangesAsync();
 
         return new ComicBookUpdateResponse
@@ -114,6 +105,9 @@ public class ComicBookService : IComicBookService
             ComicBookId = comicBook.ComicBookId.ToString(),
             Title = comicBook.Title,
             Description = comicBook.Description,
+            AdditionalDetails = comicBook.AdditionalDetails,
+            FinalComicBookPath = comicBook.FinalComicBookPath,
+            GenerationStatus = comicBook.GenerationStatus,
             IsCompleted = comicBook.IsCompleted
         };
     }
@@ -153,7 +147,10 @@ public class ComicBookService : IComicBookService
             ComicBookId = comicBookId,
             SceneOrder = request.SceneOrder,
             ImagePath = request.ImagePath,
+            StyledImagePath = request.StyledImagePath,
             UserDescription = request.UserDescription,
+            DialogueText = request.DialogueText,
+            TransitionNotes = request.TransitionNotes,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -166,7 +163,10 @@ public class ComicBookService : IComicBookService
             SceneId = scene.SceneId.ToString(),
             SceneOrder = scene.SceneOrder,
             ImagePath = scene.ImagePath,
-            UserDescription = scene.UserDescription
+            StyledImagePath = scene.StyledImagePath,
+            UserDescription = scene.UserDescription,
+            DialogueText = scene.DialogueText,
+            TransitionNotes = scene.TransitionNotes
         };
     }
 
@@ -200,25 +200,15 @@ public class ComicBookService : IComicBookService
             throw new KeyNotFoundException($"Scene with ID {sceneId} not found");
         }
 
-        if (request.ImagePath != null)
-        {
-            scene.ImagePath = request.ImagePath;
-        }
-        if (request.UserDescription != null)
-        {
-            scene.UserDescription = request.UserDescription;
-        }
-        if (request.AiGeneratedStory != null)
-        {
-            scene.AiGeneratedStory = request.AiGeneratedStory;
-        }
+        if (request.ImagePath != null) scene.ImagePath = request.ImagePath;
+        if (request.StyledImagePath != null) scene.StyledImagePath = request.StyledImagePath;
+        if (request.UserDescription != null) scene.UserDescription = request.UserDescription;
+        if (request.DialogueText != null) scene.DialogueText = request.DialogueText;
+        if (request.TransitionNotes != null) scene.TransitionNotes = request.TransitionNotes;
+        if (request.AiGeneratedStory != null) scene.AiGeneratedStory = request.AiGeneratedStory;
+        if (request.SceneOrder != null) scene.SceneOrder = request.SceneOrder.Value;
 
-        if (request.SceneOrder != null)
-        {
-            scene.SceneOrder = request.SceneOrder.Value;
-        }
         scene.UpdatedAt = DateTime.UtcNow;
-
         await _context.SaveChangesAsync();
 
         return new SceneUpdateResponse
@@ -226,7 +216,10 @@ public class ComicBookService : IComicBookService
             SceneId = scene.SceneId.ToString(),
             SceneOrder = scene.SceneOrder,
             ImagePath = scene.ImagePath,
+            StyledImagePath = scene.StyledImagePath,
             UserDescription = scene.UserDescription,
+            DialogueText = scene.DialogueText,
+            TransitionNotes = scene.TransitionNotes,
             AiGeneratedStory = scene.AiGeneratedStory
         };
     }
@@ -324,8 +317,127 @@ public class ComicBookService : IComicBookService
                 SceneId = s.SceneId.ToString(),
                 SceneOrder = s.SceneOrder,
                 ImagePath = s.ImagePath,
+                StyledImagePath = s.StyledImagePath,
                 UserDescription = s.UserDescription,
+                DialogueText = s.DialogueText,
+                TransitionNotes = s.TransitionNotes,
                 AiGeneratedStory = s.AiGeneratedStory
             });
+    }
+
+    public async Task<AssetResponse> CreateAssetAsync(AssetCreateRequest request)
+    {
+        var comicBookId = Guid.Parse(request.ComicBookId);
+        var comicBook = await _context.ComicBooks.FindAsync(comicBookId);
+
+        if (comicBook == null)
+        {
+            throw new KeyNotFoundException($"Comic book with ID {request.ComicBookId} not found");
+        }
+
+        var asset = new ComicBookAsset
+        {
+            ComicBookId = comicBookId,
+            AssetType = request.AssetType,
+            FilePath = request.FilePath,
+            PageNumber = request.PageNumber,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.ComicBookAssets.Add(asset);
+        await _context.SaveChangesAsync();
+
+        return new AssetResponse
+        {
+            AssetId = asset.AssetId.ToString(),
+            ComicBookId = asset.ComicBookId.ToString(),
+            AssetType = asset.AssetType,
+            FilePath = asset.FilePath,
+            PageNumber = asset.PageNumber,
+            CreatedAt = asset.CreatedAt
+        };
+    }
+
+    public async Task<AssetResponse> GetAssetAsync(string assetId)
+    {
+        var id = Guid.Parse(assetId);
+        var asset = await _context.ComicBookAssets.FindAsync(id);
+
+        if (asset == null)
+        {
+            throw new KeyNotFoundException($"Asset with ID {assetId} not found");
+        }
+
+        return new AssetResponse
+        {
+            AssetId = asset.AssetId.ToString(),
+            ComicBookId = asset.ComicBookId.ToString(),
+            AssetType = asset.AssetType,
+            FilePath = asset.FilePath,
+            PageNumber = asset.PageNumber,
+            CreatedAt = asset.CreatedAt
+        };
+    }
+
+    public async Task<AssetResponse> UpdateAssetAsync(string assetId, AssetUpdateRequest request)
+    {
+        var id = Guid.Parse(assetId);
+        var asset = await _context.ComicBookAssets.FindAsync(id);
+
+        if (asset == null)
+        {
+            throw new KeyNotFoundException($"Asset with ID {assetId} not found");
+        }
+
+        if (request.AssetType != null) asset.AssetType = request.AssetType;
+        if (request.FilePath != null) asset.FilePath = request.FilePath;
+        if (request.PageNumber != null) asset.PageNumber = request.PageNumber;
+
+        await _context.SaveChangesAsync();
+
+        return new AssetResponse
+        {
+            AssetId = asset.AssetId.ToString(),
+            ComicBookId = asset.ComicBookId.ToString(),
+            AssetType = asset.AssetType,
+            FilePath = asset.FilePath,
+            PageNumber = asset.PageNumber,
+            CreatedAt = asset.CreatedAt
+        };
+    }
+
+    public async Task<bool> DeleteAssetAsync(string assetId)
+    {
+        var id = Guid.Parse(assetId);
+        var asset = await _context.ComicBookAssets.FindAsync(id);
+
+        if (asset == null)
+        {
+            throw new KeyNotFoundException($"Asset with ID {assetId} not found");
+        }
+
+        _context.ComicBookAssets.Remove(asset);
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
+
+    public async Task<IEnumerable<AssetResponse>> GetComicBookAssetsAsync(string comicBookId)
+    {
+        var id = Guid.Parse(comicBookId);
+        var assets = await _context.ComicBookAssets
+            .Where(a => a.ComicBookId == id)
+            .OrderBy(a => a.PageNumber)
+            .ToListAsync();
+
+        return assets.Select(asset => new AssetResponse
+        {
+            AssetId = asset.AssetId.ToString(),
+            ComicBookId = asset.ComicBookId.ToString(),
+            AssetType = asset.AssetType,
+            FilePath = asset.FilePath,
+            PageNumber = asset.PageNumber,
+            CreatedAt = asset.CreatedAt
+        });
     }
 } 
