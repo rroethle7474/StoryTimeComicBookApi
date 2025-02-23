@@ -340,6 +340,8 @@ public class ComicBookService : IComicBookService
             ComicBookId = comicBookId,
             AssetType = request.AssetType,
             FilePath = request.FilePath,
+            FullStoryText = request.FullStoryText,
+            Status = request.Status,
             PageNumber = request.PageNumber,
             CreatedAt = DateTime.UtcNow
         };
@@ -353,6 +355,8 @@ public class ComicBookService : IComicBookService
             ComicBookId = asset.ComicBookId.ToString(),
             AssetType = asset.AssetType,
             FilePath = asset.FilePath,
+            FullStoryText = asset.FullStoryText,
+            Status = asset.Status,
             PageNumber = asset.PageNumber,
             CreatedAt = asset.CreatedAt
         };
@@ -389,8 +393,10 @@ public class ComicBookService : IComicBookService
             throw new KeyNotFoundException($"Asset with ID {assetId} not found");
         }
 
-        if (request.AssetType != null) asset.AssetType = request.AssetType;
+        if (request.AssetType.HasValue) asset.AssetType = request.AssetType.Value;
         if (request.FilePath != null) asset.FilePath = request.FilePath;
+        if (request.FullStoryText != null) asset.FullStoryText = request.FullStoryText;
+        if (request.Status != null) asset.Status = request.Status;
         if (request.PageNumber != null) asset.PageNumber = request.PageNumber;
 
         await _context.SaveChangesAsync();
@@ -401,6 +407,8 @@ public class ComicBookService : IComicBookService
             ComicBookId = asset.ComicBookId.ToString(),
             AssetType = asset.AssetType,
             FilePath = asset.FilePath,
+            FullStoryText = asset.FullStoryText,
+            Status = asset.Status,
             PageNumber = asset.PageNumber,
             CreatedAt = asset.CreatedAt
         };

@@ -1,3 +1,4 @@
+using StoryTimeComicBookApi.Data.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -12,12 +13,16 @@ public class ComicBookAsset
     public Guid ComicBookId { get; set; }
     
     [Required]
-    [MaxLength(50)]
-    public string AssetType { get; set; } = string.Empty;
+    public AssetType AssetType { get; set; }
     
     [Required]
     [MaxLength(255)]
     public string FilePath { get; set; } = string.Empty;
+    
+    public string? FullStoryText { get; set; }
+    
+    [MaxLength(50)]
+    public string Status { get; set; } = "IN_PROGRESS";
     
     public int? PageNumber { get; set; }
     
