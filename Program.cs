@@ -14,6 +14,25 @@ builder.Services.AddControllers();
 // Add LLM client and story generator
 builder.Services.AddLlmClient(builder.Configuration);
 builder.Services.AddScoped<IAiStoryGenerator, AiStoryGenerator>();
+builder.Services.AddHttpClient();
+
+// Named HttpClient for Replicate API with a custom timeout
+builder.Services.AddHttpClient("ReplicateApi", client => {
+    client.Timeout = TimeSpan.FromMinutes(5); // Longer timeout for image generation
+});
+
+builder.Services.AddHttpClient("OpenAIApi", client => {
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+
+builder.Services.AddHttpClient("AnthropicApi", client => {
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+
+// Register the image generation service
+builder.Services.AddScoped<IImageGenerationService, ReplicateImageGenerationService>();
 
 // Add service dependencies
 builder.Services.AddScoped<IComicBookService, ComicBookService>();

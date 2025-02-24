@@ -8,6 +8,7 @@ using StoryTimeComicBookApi.Services.Interfaces;
 using System.Text.Json;
 using System.Text;
 using StoryTimeComicBookApi.Services.Clients.Interfaces;
+using System.Web;
 
 namespace StoryTimeComicBookApi.Services;
 
@@ -18,12 +19,14 @@ public class ComicBookService : IComicBookService
     private readonly ILogger<ComicBookService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
+    private readonly IImageGenerationService _imageGenerationService;
 
     public ComicBookService(
         IAiStoryGenerator storyGenerator,
         ComicBookDataContext context,
         IConfiguration configuraiton,
         IServiceProvider serviceProvider,
+        IImageGenerationService imageGenerationService,
         ILogger<ComicBookService> logger)
     {
         _storyGenerator = storyGenerator;
@@ -31,6 +34,7 @@ public class ComicBookService : IComicBookService
         _configuration = configuraiton;
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _imageGenerationService = imageGenerationService;
     }
 
     public async Task<ComicBookCreateResponse> CreateComicBookAsync(ComicBookCreateRequest request)
@@ -480,6 +484,10 @@ public class ComicBookService : IComicBookService
             throw new KeyNotFoundException($"Asset with ID {assetId} not found");
         }
 
+        // Update asset status to processing
+        asset.Status = "PROCESSING";
+        await _context.SaveChangesAsync();
+
         var comicBook = asset.ComicBook;
         var scenes = await _context.Scenes
             .Where(s => s.ComicBookId == comicBook.ComicBookId)
@@ -491,103 +499,116 @@ public class ComicBookService : IComicBookService
             throw new InvalidOperationException("No scenes found for this comic book.");
         }
 
+        // Create directory for comic book assets if it doesn't exist
         string comicBookFolder = Path.Combine("wwwroot", "comics", comicBook.ComicBookId.ToString());
         if (!Directory.Exists(comicBookFolder))
         {
             Directory.CreateDirectory(comicBookFolder);
         }
 
-        foreach (var scene in scenes)
+        try
         {
-            if (string.IsNullOrEmpty(scene.ImagePath) || string.IsNullOrEmpty(scene.UserDescription))
+            // Process scene images in parallel
+            var imageProcessingTasks = scenes
+                    .Where(s => !string.IsNullOrEmpty(s.ImagePath) && !string.IsNullOrEmpty(s.UserDescription))
+                    .Select(async scene =>
+                    {
+                        string styledImagePath = await _imageGenerationService.GenerateComicStyleImage(
+                            scene.ImagePath,
+                            scene.UserDescription,
+                            comicBookFolder,
+                            comicBook.ComicBookId.ToString());
+
+                        scene.StyledImagePath = styledImagePath;
+                        return scene;
+                    });
+
+            // Generate full story text in parallel with image processing
+            var storyGenerationTask = GenerateFullStory(comicBook, scenes);
+
+            // Wait for all image processing tasks to complete
+            var processedScenes = await Task.WhenAll(imageProcessingTasks);
+
+            // Save updated scenes with styled image paths
+            foreach (var scene in processedScenes)
             {
-                _logger.LogWarning($"Scene {scene.SceneId} missing image or description. Skipping.");
-                continue;
+                _context.Scenes.Update(scene);
             }
+            await _context.SaveChangesAsync();
 
-            //string newImagePath = await GenerateComicStyleImage(scene.ImagePath, scene.UserDescription, comicBookFolder);
-            //scene.StyledImagePath = newImagePath;
-            //_context.Scenes.Update(scene);
+            // Get the completed story text
+            string fullStory = await storyGenerationTask;
+
+            // Update asset with the full story text
+            asset.FullStoryText = fullStory;
+            asset.Status = "COMPLETED";
+            _context.ComicBookAssets.Update(asset);
+
+            await _context.SaveChangesAsync();
+
+            return true;
         }
-
-        //await _context.SaveChangesAsync();
-
-        //string fullStory = await GenerateFullStory(comicBook, scenes);
-        //asset.FullStoryText = fullStory;
-        //_context.ComicBookAssets.Update(asset);
-
-        //await _context.SaveChangesAsync();
-
-        return true;
-    }
-
-    private async Task<string> GenerateComicStyleImage(string imagePath, string userDescription, string outputFolder)
-    {
-        var apiUrl = "https://api.replicate.com/v1/predictions";
-        var replicateApiKey = _configuration["AI:Replicate:ApiKey"];
-
-        var payload = new
+        catch (Exception ex)
         {
-            version = "stability-ai/stable-diffusion",
-            input = new
-            {
-                prompt = $"{userDescription}, comic book style, vibrant colors",
-                image = imagePath
-            }
-        };
-
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.Add("Authorization", $"Token {replicateApiKey}");
-        var jsonPayload = JsonSerializer.Serialize(payload);
-        var response = await client.PostAsync(apiUrl, new StringContent(jsonPayload, Encoding.UTF8, "application/json"));
-
-        response.EnsureSuccessStatusCode();
-        var result = await response.Content.ReadAsStringAsync();
-        var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(result);
-
-        if (responseObject == null || !responseObject.TryGetValue("output", out var outputUrlObj) || outputUrlObj == null)
-        {
-            throw new Exception("Failed to generate comic-style image.");
+            _logger.LogError(ex, "Error generating comic book for asset {AssetId}", assetId);
+            asset.Status = "FAILED";
+            await _context.SaveChangesAsync();
+            throw;
         }
-
-        string outputUrl = outputUrlObj.ToString();
-        string fileName = $"{Guid.NewGuid()}.png";
-        string localFilePath = Path.Combine(outputFolder, fileName);
-
-        using var httpClient = new HttpClient();
-        var imageData = await httpClient.GetByteArrayAsync(outputUrl);
-        await File.WriteAllBytesAsync(localFilePath, imageData);
-
-        return $"/comics/{Path.GetFileName(outputFolder)}/{fileName}";
     }
 
     private async Task<string> GenerateFullStory(ComicBook comicBook, List<Scene> scenes)
     {
-        using var scope = _serviceProvider.CreateScope(); // Create a new DI scope
+        using var scope = _serviceProvider.CreateScope();
         var llmClient = scope.ServiceProvider.GetRequiredService<ILlmClient>();
 
         var storyPrompt = new StringBuilder();
+        storyPrompt.AppendLine($"Create a complete comic book story with the following details:");
         storyPrompt.AppendLine($"Title: {comicBook.Title}");
-        storyPrompt.AppendLine($"Description: {comicBook.Description}");
+
+        if (!string.IsNullOrEmpty(comicBook.Description))
+        {
+            storyPrompt.AppendLine($"Description: {comicBook.Description}");
+        }
+
         if (!string.IsNullOrEmpty(comicBook.AdditionalDetails))
         {
             storyPrompt.AppendLine($"Additional Details: {comicBook.AdditionalDetails}");
         }
 
-        foreach (var scene in scenes)
+        storyPrompt.AppendLine("\nThe story should be structured with the following scenes:");
+
+        for (int i = 0; i < scenes.Count; i++)
         {
-            storyPrompt.AppendLine($"Scene {scene.SceneOrder}:");
-            storyPrompt.AppendLine($"- Image: {scene.StyledImagePath}");
-            storyPrompt.AppendLine($"- Description: {scene.UserDescription}");
+            var scene = scenes[i];
+            storyPrompt.AppendLine($"\nScene {i + 1}: {scene.UserDescription}");
         }
 
-        var finalStory = new StringBuilder();
-        await foreach (var sentence in llmClient.GenerateContentStreamAsync(storyPrompt.ToString()))
+        storyPrompt.AppendLine("\nFormat the story as HTML with placeholders for images in each scene. Use <img> tags with the 'scene-X' class to indicate where each scene's image should be placed, where X is the scene number.");
+        storyPrompt.AppendLine("\nStructure the content with proper HTML tags for paragraphs, headings, etc. Include a title, introduction, and conclusion.");
+
+        var finalStoryBuilder = new StringBuilder();
+        var allText = new StringBuilder();
+
+        await foreach (var chunk in llmClient.GenerateContentStreamAsync(storyPrompt.ToString()))
         {
-            finalStory.Append(sentence);
+            finalStoryBuilder.Append(chunk);
+            allText.Append(chunk);
         }
 
-        return finalStory.ToString();
+        string htmlStory = finalStoryBuilder.ToString();
+
+        // Process the HTML to insert the actual image paths
+        for (int i = 0; i < scenes.Count; i++)
+        {
+            var scene = scenes[i];
+            string imagePlaceholder = $"<img class=\"scene-{i + 1}\"";
+            string imageReplacement = $"<img class=\"scene-{i + 1}\" src=\"{scene.StyledImagePath}\" alt=\"{HttpUtility.HtmlEncode(scene.UserDescription)}\"";
+
+            htmlStory = htmlStory.Replace(imagePlaceholder, imageReplacement);
+        }
+
+        return htmlStory;
     }
 
 
