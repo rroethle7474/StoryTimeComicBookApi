@@ -42,12 +42,6 @@ namespace StoryTimeComicBookApi.Data
                 .HasForeignKey(a => a.ComicBookId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Configure AssetType enum to use the PostgreSQL enum type
-            modelBuilder.Entity<ComicBookAsset>()
-                .Property(e => e.AssetType)
-                .HasConversion(new EnumToStringConverter<AssetType>())
-                .HasColumnType("comic_book_schema.\"AssetType\"");
-
             // Create index for ComicBookAssets.ComicBookId
             modelBuilder.Entity<ComicBookAsset>()
                 .HasIndex(a => a.ComicBookId)

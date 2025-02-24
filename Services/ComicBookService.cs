@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using StoryTimeComicBookApi.Data;
 using StoryTimeComicBookApi.Data.Entities;
+using StoryTimeComicBookApi.Data.Enums;
 using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Interfaces;
@@ -347,7 +348,17 @@ public class ComicBookService : IComicBookService
         };
 
         _context.ComicBookAssets.Add(asset);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch(Exception ex)
+        {
+            _logger.LogError(ex, "Error creating asset for comic book {ComicBookId}. AssetType: {AssetType}", 
+                request.ComicBookId, 
+                request.AssetType);
+            throw;
+        }
 
         return new AssetResponse
         {
@@ -393,7 +404,7 @@ public class ComicBookService : IComicBookService
             throw new KeyNotFoundException($"Asset with ID {assetId} not found");
         }
 
-        if (request.AssetType.HasValue) asset.AssetType = request.AssetType.Value;
+        if (request.AssetType != null) asset.AssetType = request.AssetType;
         if (request.FilePath != null) asset.FilePath = request.FilePath;
         if (request.FullStoryText != null) asset.FullStoryText = request.FullStoryText;
         if (request.Status != null) asset.Status = request.Status;

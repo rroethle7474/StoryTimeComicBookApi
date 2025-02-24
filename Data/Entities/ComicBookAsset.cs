@@ -13,7 +13,7 @@ public class ComicBookAsset
     public Guid ComicBookId { get; set; }
     
     [Required]
-    public AssetType AssetType { get; set; }
+    public string AssetType { get; set; }
     
     [Required]
     [MaxLength(255)]
