@@ -465,6 +465,49 @@ public class ComicBookController : ControllerBase
         }
     }
 
+    [HttpGet("status/{assetId}")]
+    public async Task<ActionResult<ApiResponse<ComicBookStatusResponse>>> GetComicBookStatus(Guid assetId)
+    {
+        try
+        {
+            var asset = await _comicBookService.GetAssetAsync(assetId.ToString());
+            if (asset == null)
+            {
+                return NotFound(ApiResponse<ComicBookStatusResponse>.Failure("Asset not found", "ASSET_NOT_FOUND"));
+            }
+
+            int progress = asset.Status switch
+            {
+                "Pending" => 0,
+                "In Progress" => 50, // Example, can be dynamically calculated
+                "Completed" => 100,
+                "Failed" => 0,
+                _ => 0
+            };
+
+            string estimatedTime = asset.Status == "In Progress" ? "2-3 minutes remaining" : null;
+
+            var response = new ComicBookStatusResponse
+            {
+                Status = asset.Status,
+                Progress = progress,
+                EstimatedTimeRemaining = estimatedTime,
+                Message = asset.Status == "Failed" ? "An error occurred. Please retry." : null,
+                AssetId = asset.AssetId
+            };
+
+            return Ok(ApiResponse<ComicBookStatusResponse>.Success(response));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving comic book status");
+            return StatusCode(500, ApiResponse<ComicBookStatusResponse>.Failure(
+                "Error retrieving status",
+                "STATUS_ERROR",
+                ex.Message));
+        }
+    }
+
     [HttpPost("generate/{assetId}")]
     public async Task<ActionResult<ApiResponse<bool>>> GenerateComicBook(Guid assetId)
     {
