@@ -23,4 +23,7 @@ public interface IComicBookService
     Task<AssetResponse> UpdateAssetAsync(string assetId, AssetUpdateRequest request);
     Task<bool> DeleteAssetAsync(string assetId);
     Task<IEnumerable<AssetResponse>> GetComicBookAssetsAsync(string comicBookId);
-} 
+
+    //Asset generation methods
+    Task<bool> GenerateComicBookAsync(Guid assetId);
+}

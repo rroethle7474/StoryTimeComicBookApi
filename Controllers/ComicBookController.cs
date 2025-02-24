@@ -464,4 +464,31 @@ public class ComicBookController : ControllerBase
                 ex.Message));
         }
     }
+
+    [HttpPost("generate/{assetId}")]
+    public async Task<ActionResult<ApiResponse<bool>>> GenerateComicBook(Guid assetId)
+    {
+        try
+        {
+            var result = await _comicBookService.GenerateComicBookAsync(assetId);
+            return Ok(ApiResponse<bool>.Success(result));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogError(ex, "Asset not found");
+            return NotFound(ApiResponse<bool>.Failure(
+                "Asset not found",
+                "ASSET_NOT_FOUND",
+                ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating comic book");
+            return StatusCode(500, ApiResponse<bool>.Failure(
+                "An error occurred while generating the comic book",
+                "COMIC_GENERATE_ERROR",
+                ex.Message));
+        }
+    }
+
 }

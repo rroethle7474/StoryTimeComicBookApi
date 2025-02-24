@@ -5,6 +5,9 @@ using StoryTimeComicBookApi.Data.Enums;
 using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Interfaces;
+using System.Text.Json;
+using System.Text;
+using StoryTimeComicBookApi.Services.Clients.Interfaces;
 
 namespace StoryTimeComicBookApi.Services;
 
@@ -13,14 +16,20 @@ public class ComicBookService : IComicBookService
     private readonly IAiStoryGenerator _storyGenerator;
     private readonly ComicBookDataContext _context;
     private readonly ILogger<ComicBookService> _logger;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IConfiguration _configuration;
 
     public ComicBookService(
         IAiStoryGenerator storyGenerator,
         ComicBookDataContext context,
+        IConfiguration configuraiton,
+        IServiceProvider serviceProvider,
         ILogger<ComicBookService> logger)
     {
         _storyGenerator = storyGenerator;
         _context = context;
+        _configuration = configuraiton;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -459,4 +468,127 @@ public class ComicBookService : IComicBookService
             CreatedAt = asset.CreatedAt
         });
     }
-} 
+
+    public async Task<bool> GenerateComicBookAsync(Guid assetId)
+    {
+        var asset = await _context.ComicBookAssets
+            .Include(a => a.ComicBook)
+            .FirstOrDefaultAsync(a => a.AssetId == assetId);
+
+        if (asset == null)
+        {
+            throw new KeyNotFoundException($"Asset with ID {assetId} not found");
+        }
+
+        var comicBook = asset.ComicBook;
+        var scenes = await _context.Scenes
+            .Where(s => s.ComicBookId == comicBook.ComicBookId)
+            .OrderBy(s => s.SceneOrder)
+            .ToListAsync();
+
+        if (!scenes.Any())
+        {
+            throw new InvalidOperationException("No scenes found for this comic book.");
+        }
+
+        string comicBookFolder = Path.Combine("wwwroot", "comics", comicBook.ComicBookId.ToString());
+        if (!Directory.Exists(comicBookFolder))
+        {
+            Directory.CreateDirectory(comicBookFolder);
+        }
+
+        foreach (var scene in scenes)
+        {
+            if (string.IsNullOrEmpty(scene.ImagePath) || string.IsNullOrEmpty(scene.UserDescription))
+            {
+                _logger.LogWarning($"Scene {scene.SceneId} missing image or description. Skipping.");
+                continue;
+            }
+
+            //string newImagePath = await GenerateComicStyleImage(scene.ImagePath, scene.UserDescription, comicBookFolder);
+            //scene.StyledImagePath = newImagePath;
+            //_context.Scenes.Update(scene);
+        }
+
+        //await _context.SaveChangesAsync();
+
+        //string fullStory = await GenerateFullStory(comicBook, scenes);
+        //asset.FullStoryText = fullStory;
+        //_context.ComicBookAssets.Update(asset);
+
+        //await _context.SaveChangesAsync();
+
+        return true;
+    }
+
+    private async Task<string> GenerateComicStyleImage(string imagePath, string userDescription, string outputFolder)
+    {
+        var apiUrl = "https://api.replicate.com/v1/predictions";
+        var replicateApiKey = _configuration["AI:Replicate:ApiKey"];
+
+        var payload = new
+        {
+            version = "stability-ai/stable-diffusion",
+            input = new
+            {
+                prompt = $"{userDescription}, comic book style, vibrant colors",
+                image = imagePath
+            }
+        };
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Add("Authorization", $"Token {replicateApiKey}");
+        var jsonPayload = JsonSerializer.Serialize(payload);
+        var response = await client.PostAsync(apiUrl, new StringContent(jsonPayload, Encoding.UTF8, "application/json"));
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadAsStringAsync();
+        var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(result);
+
+        if (responseObject == null || !responseObject.TryGetValue("output", out var outputUrlObj) || outputUrlObj == null)
+        {
+            throw new Exception("Failed to generate comic-style image.");
+        }
+
+        string outputUrl = outputUrlObj.ToString();
+        string fileName = $"{Guid.NewGuid()}.png";
+        string localFilePath = Path.Combine(outputFolder, fileName);
+
+        using var httpClient = new HttpClient();
+        var imageData = await httpClient.GetByteArrayAsync(outputUrl);
+        await File.WriteAllBytesAsync(localFilePath, imageData);
+
+        return $"/comics/{Path.GetFileName(outputFolder)}/{fileName}";
+    }
+
+    private async Task<string> GenerateFullStory(ComicBook comicBook, List<Scene> scenes)
+    {
+        using var scope = _serviceProvider.CreateScope(); // Create a new DI scope
+        var llmClient = scope.ServiceProvider.GetRequiredService<ILlmClient>();
+
+        var storyPrompt = new StringBuilder();
+        storyPrompt.AppendLine($"Title: {comicBook.Title}");
+        storyPrompt.AppendLine($"Description: {comicBook.Description}");
+        if (!string.IsNullOrEmpty(comicBook.AdditionalDetails))
+        {
+            storyPrompt.AppendLine($"Additional Details: {comicBook.AdditionalDetails}");
+        }
+
+        foreach (var scene in scenes)
+        {
+            storyPrompt.AppendLine($"Scene {scene.SceneOrder}:");
+            storyPrompt.AppendLine($"- Image: {scene.StyledImagePath}");
+            storyPrompt.AppendLine($"- Description: {scene.UserDescription}");
+        }
+
+        var finalStory = new StringBuilder();
+        await foreach (var sentence in llmClient.GenerateContentStreamAsync(storyPrompt.ToString()))
+        {
+            finalStory.Append(sentence);
+        }
+
+        return finalStory.ToString();
+    }
+
+
+}
