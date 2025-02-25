@@ -3,6 +3,8 @@ using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Interfaces;
 using StoryTimeComicBookApi.Models.Common;
+using DinkToPdf.Contracts;
+using DinkToPdf;
 
 namespace StoryTimeComicBookApi.Controllers;
 
@@ -530,6 +532,150 @@ public class ComicBookController : ControllerBase
             return StatusCode(500, ApiResponse<bool>.Failure(
                 "An error occurred while generating the comic book",
                 "COMIC_GENERATE_ERROR",
+                ex.Message));
+        }
+    }
+
+    // Install packages
+    // dotnet add package DinkToPdf
+    // dotnet add package DinkToPdf.Natives.Linux
+    // For Windows: DinkToPdf.Natives.Win
+
+    [HttpGet("generate-pdf/{assetId}")]
+    public async Task<ActionResult<ApiResponse<string>>> GenerateComicBookPdf(string assetId)
+    {
+        try
+        {
+            var asset = await _comicBookService.GetAssetAsync(assetId);
+            if (asset == null)
+            {
+                return NotFound(ApiResponse<string>.Failure("Asset not found", "ASSET_NOT_FOUND"));
+            }
+
+            if (string.IsNullOrWhiteSpace(asset.FullStoryText))
+            {
+                return BadRequest(ApiResponse<string>.Failure("No content available for PDF generation", "NO_CONTENT"));
+            }
+
+            // Generate PDF
+            var htmlContent = asset.FullStoryText;
+
+            // Make image paths absolute for PDF generation
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            htmlContent = htmlContent.Replace("src=\"/", $"src=\"{baseUrl}/");
+
+            // Add custom styles for PDF
+            var styledHtml = $@"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='utf-8'>
+            <title>Comic Book</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
+                img {{ max-width: 100%; height: auto; margin: 10px 0; }}
+                h1 {{ color: #333; }}
+                p {{ line-height: 1.6; }}
+            </style>
+        </head>
+        <body>
+            {htmlContent}
+        </body>
+        </html>";
+
+            // Initialize converter
+            var converter = new BasicConverter(new PdfTools());
+            var doc = new HtmlToPdfDocument()
+            {
+                GlobalSettings = {
+                ColorMode = ColorMode.Color,
+                Orientation = Orientation.Portrait,
+                PaperSize = PaperKind.A4,
+                Margins = new MarginSettings { Top = 10, Bottom = 10, Left = 10, Right = 10 },
+                DocumentTitle = "Comic Book"
+            },
+                Objects = {
+                new ObjectSettings
+                {
+                    HtmlContent = styledHtml,
+                    WebSettings = { DefaultEncoding = "utf-8" }
+                }
+            }
+            };
+
+            // Generate PDF bytes
+            byte[] pdfBytes = converter.Convert(doc);
+
+            // Create unique filename
+            string fileName = $"Comic_{asset.ComicBookId}_{DateTime.Now:yyyyMMddHHmmss}.pdf";
+            string pdfDirectory = Path.Combine("wwwroot", "pdfs");
+
+            // Ensure directory exists
+            if (!Directory.Exists(pdfDirectory))
+            {
+                Directory.CreateDirectory(pdfDirectory);
+            }
+
+            string pdfPath = Path.Combine(pdfDirectory, fileName);
+            await System.IO.File.WriteAllBytesAsync(pdfPath, pdfBytes);
+
+            // Save the PDF path to the asset
+            var pdfWebPath = $"/pdfs/{fileName}";
+
+            // Update the asset with the PDF path
+            var updateRequest = new AssetUpdateRequest
+            {
+                FilePath = pdfWebPath,
+                Status = "COMPLETED"
+            };
+
+            await _comicBookService.UpdateAssetAsync(assetId, updateRequest);
+
+            // Return the URL to the generated PDF
+            return Ok(ApiResponse<string>.Success($"/pdfs/{fileName}"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating PDF for asset {AssetId}", assetId);
+            return StatusCode(500, ApiResponse<string>.Failure(
+                "An error occurred while generating the PDF",
+                "PDF_GENERATION_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("assets/{assetId}/details")]
+    public async Task<ActionResult<ApiResponse<AssetDetailsResponse>>> GetAssetDetails(string assetId)
+    {
+        try
+        {
+            var asset = await _comicBookService.GetAssetAsync(assetId);
+
+            // Create a response with the specific fields needed for viewing
+            var response = new AssetDetailsResponse
+            {
+                AssetId = asset.AssetId,
+                ComicBookId = asset.ComicBookId,
+                FilePath = asset.FilePath,
+                FullStoryText = asset.FullStoryText,
+                Status = asset.Status
+            };
+
+            return Ok(ApiResponse<AssetDetailsResponse>.Success(response));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<AssetDetailsResponse>.Failure(
+                "Asset not found",
+                "ASSET_NOT_FOUND",
+                ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving asset details");
+            return StatusCode(500, ApiResponse<AssetDetailsResponse>.Failure(
+                "An error occurred while retrieving asset details",
+                "ASSET_DETAILS_ERROR",
                 ex.Message));
         }
     }
