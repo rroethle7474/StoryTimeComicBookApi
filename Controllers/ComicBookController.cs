@@ -96,12 +96,13 @@ public class ComicBookController : ControllerBase
     {
         try
         {
+            _logger.LogInformation($"Received request to delete comic book with ID: {comicBookId}");
             var response = await _comicBookService.DeleteComicBookAsync(comicBookId);
             return Ok(ApiResponse<ComicBookDeleteResponse>.Success(response));
         }
         catch (KeyNotFoundException ex)
         {
-            _logger.LogError(ex, "Comic book not found");
+            _logger.LogWarning(ex, "Comic book not found during deletion attempt");
             return NotFound(ApiResponse<ComicBookDeleteResponse>.Failure(
                 "Comic book not found",
                 "COMIC_NOT_FOUND",
@@ -111,7 +112,7 @@ public class ComicBookController : ControllerBase
         {
             _logger.LogError(ex, "Error deleting comic book");
             return StatusCode(500, ApiResponse<ComicBookDeleteResponse>.Failure(
-                "An error occurred while deleting the comic book",
+                "An error occurred while deleting the comic book and its resources",
                 "COMIC_DELETE_ERROR",
                 ex.Message));
         }
@@ -676,6 +677,26 @@ public class ComicBookController : ControllerBase
             return StatusCode(500, ApiResponse<AssetDetailsResponse>.Failure(
                 "An error occurred while retrieving asset details",
                 "ASSET_DETAILS_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("completed")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<CompletedComicResponse>>>> GetCompletedComics()
+    {
+        try
+        {
+            // Retrieve all comic books that are marked as completed
+            var completedComics = await _comicBookService.GetCompletedComicsAsync();
+
+            return Ok(ApiResponse<IEnumerable<CompletedComicResponse>>.Success(completedComics));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving completed comics");
+            return StatusCode(500, ApiResponse<IEnumerable<CompletedComicResponse>>.Failure(
+                "An error occurred while retrieving completed comics",
+                "COMPLETED_COMICS_ERROR",
                 ex.Message));
         }
     }

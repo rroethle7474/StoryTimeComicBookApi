@@ -129,21 +129,105 @@ public class ComicBookService : IComicBookService
     public async Task<ComicBookDeleteResponse> DeleteComicBookAsync(string comicBookId)
     {
         var id = Guid.Parse(comicBookId);
-        var comicBook = await _context.ComicBooks.FindAsync(id);
+
+        // Load comic book with scenes and assets
+        var comicBook = await _context.ComicBooks
+            .Include(cb => cb.Scenes)
+            .Include(cb => cb.Assets)
+            .FirstOrDefaultAsync(cb => cb.ComicBookId == id);
 
         if (comicBook == null)
         {
             throw new KeyNotFoundException($"Comic book with ID {comicBookId} not found");
         }
 
-        _context.ComicBooks.Remove(comicBook);
-        await _context.SaveChangesAsync();
-
-        return new ComicBookDeleteResponse
+        try
         {
-            ComicBookId = comicBookId,
-            IsDeleted = true
-        };
+            // Start a transaction to ensure data consistency
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // 1. Delete physical files for scenes
+                foreach (var scene in comicBook.Scenes)
+                {
+                    if (!string.IsNullOrEmpty(scene.ImagePath))
+                    {
+                        DeleteFileIfExists(scene.ImagePath);
+                    }
+
+                    if (!string.IsNullOrEmpty(scene.StyledImagePath))
+                    {
+                        DeleteFileIfExists(scene.StyledImagePath);
+                    }
+                }
+
+                // 2. Delete physical files for assets
+                foreach (var asset in comicBook.Assets)
+                {
+                    if (!string.IsNullOrEmpty(asset.FilePath))
+                    {
+                        // Delete file (PDF, image, etc)
+                        DeleteFileIfExists(asset.FilePath);
+                    }
+                }
+
+                // 3. Delete comic book (will cascade delete scenes and assets)
+                _context.ComicBooks.Remove(comicBook);
+                await _context.SaveChangesAsync();
+
+                // 4. Commit the transaction
+                await transaction.CommitAsync();
+
+                _logger.LogInformation($"Comic book {comicBookId} and all associated resources deleted successfully");
+
+                return new ComicBookDeleteResponse
+                {
+                    ComicBookId = comicBookId,
+                    IsDeleted = true
+                };
+            }
+            catch (Exception ex)
+            {
+                // Roll back the transaction if an error occurs
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, $"Error deleting comic book {comicBookId}");
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error deleting comic book {comicBookId}");
+            throw;
+        }
+    }
+
+    // Helper method to safely delete files
+    private void DeleteFileIfExists(string relativePath)
+    {
+        try
+        {
+            // Remove leading '/' if present
+            relativePath = relativePath.TrimStart('/');
+
+            // Construct full physical path
+            var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", relativePath);
+
+            if (File.Exists(fullPath))
+            {
+                File.Delete(fullPath);
+                _logger.LogInformation($"File deleted: {fullPath}");
+            }
+            else
+            {
+                _logger.LogWarning($"File not found for deletion: {fullPath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log but don't throw - we want to continue with the database deletion even if file deletion fails
+            _logger.LogError(ex, $"Error deleting file {relativePath}");
+        }
     }
 
     public async Task<SceneCreateResponse> CreateSceneAsync(SceneCreateRequest request)
@@ -555,6 +639,30 @@ public class ComicBookService : IComicBookService
             await _context.SaveChangesAsync();
             throw;
         }
+    }
+
+    public async Task<IEnumerable<CompletedComicResponse>> GetCompletedComicsAsync()
+    {
+        var completedComics = await _context.ComicBooks
+            .Where(cb => cb.IsCompleted)
+            .Join(
+                _context.ComicBookAssets.Where(a => a.AssetType == "FULL_STORY" && a.Status == "COMPLETED"),
+                cb => cb.ComicBookId,
+                asset => asset.ComicBookId,
+                (cb, asset) => new CompletedComicResponse
+                {
+                    ComicBookId = cb.ComicBookId.ToString(),
+                    AssetId = asset.AssetId.ToString(),
+                    Title = cb.Title,
+                    Description = cb.Description ?? string.Empty,
+                    FilePath = asset.FilePath,
+                    CompletedAt = asset.CreatedAt
+                }
+            )
+            .OrderByDescending(c => c.CompletedAt)
+            .ToListAsync();
+
+        return completedComics;
     }
 
     private async Task<string> GenerateFullStory(ComicBook comicBook, List<Scene> scenes)
