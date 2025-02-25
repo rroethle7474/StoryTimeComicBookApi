@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using StoryTimeComicBookApi.Data;
 using DinkToPdf.Contracts;
 using DinkToPdf;
+using System.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +51,13 @@ builder.Services.AddDbContext<VoiceMimicDataContext>(options =>
 // Add these lines after your existing service registrations
 builder.Services.AddScoped<IAudioStorageService, AudioStorageService>();
 builder.Services.AddScoped<IVoiceModelTrainer, VoiceModelTrainer>();
+
+builder.Services.AddHttpClient("HuggingFaceApi", client => {
+    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    client.Timeout = TimeSpan.FromMinutes(5); // Speech synthesis might take time
+});
+
+builder.Services.AddScoped<HuggingFaceClient>();
 
 // Add CORS services
 builder.Services.AddCors(options =>

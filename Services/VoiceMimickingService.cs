@@ -3,6 +3,7 @@ using StoryTimeComicBookApi.Data;
 using StoryTimeComicBookApi.Data.Entities;
 using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
+using StoryTimeComicBookApi.Services.Clients;
 using StoryTimeComicBookApi.Services.Interfaces;
 
 namespace StoryTimeComicBookApi.Services;
@@ -10,20 +11,26 @@ namespace StoryTimeComicBookApi.Services;
 public class VoiceMimickingService : IVoiceMimickingService
 {
     private readonly VoiceMimicDataContext _context;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<VoiceMimickingService> _logger;
     private readonly IAudioStorageService _audioStorage;
     private readonly IVoiceModelTrainer _modelTrainer;
+    private readonly HuggingFaceClient _huggingFaceClient;
 
     public VoiceMimickingService(
         VoiceMimicDataContext context,
+        IConfiguration configuration,
         ILogger<VoiceMimickingService> logger,
         IAudioStorageService audioStorage,
-        IVoiceModelTrainer modelTrainer)
+        IVoiceModelTrainer modelTrainer,
+        HuggingFaceClient huggingFaceClient)
     {
         _context = context;
+        _configuration = configuration;
         _logger = logger;
         _audioStorage = audioStorage;
         _modelTrainer = modelTrainer;
+        _huggingFaceClient = huggingFaceClient;
     }
 
     public async Task<CreateVoiceModelResponse> CreateVoiceModelAsync(CreateVoiceModelRequest request)
@@ -215,6 +222,7 @@ public class VoiceMimickingService : IVoiceMimickingService
                 throw new InvalidOperationException("No trained voice model available");
             }
 
+            // This now calls the updated SynthesizeSpeechAsync that uses HuggingFace
             var audioUrl = await _modelTrainer.SynthesizeSpeechAsync(
                 request.TextToSynthesize,
                 latestModel.VoiceModelId);
@@ -227,6 +235,38 @@ public class VoiceMimickingService : IVoiceMimickingService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error synthesizing speech");
+            throw;
+        }
+    }
+
+    public async Task<SynthesizeSpeechResponse> SynthesizeSpeechForModelAsync(Guid modelId, string text)
+    {
+        try
+        {
+            var voiceModel = await _context.VoiceModels
+                .FirstOrDefaultAsync(v => v.VoiceModelId == modelId);
+
+            if (voiceModel == null)
+            {
+                throw new KeyNotFoundException($"Voice model with ID {modelId} not found");
+            }
+
+            if (voiceModel.Status != "completed")
+            {
+                throw new InvalidOperationException($"Voice model {modelId} is not ready (status: {voiceModel.Status})");
+            }
+
+            // Call the trainer to synthesize speech
+            var audioUrl = await _modelTrainer.SynthesizeSpeechAsync(text, modelId);
+
+            return new SynthesizeSpeechResponse
+            {
+                AudioUrl = audioUrl
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error synthesizing speech for model {ModelId}", modelId);
             throw;
         }
     }
@@ -387,36 +427,6 @@ public class VoiceMimickingService : IVoiceMimickingService
                 throw new InvalidOperationException("No audio snippets available for training");
             }
 
-            // Create replicate model record
-            var replicateModel = await _context.ReplicateModels.FirstOrDefaultAsync(
-                r => r.ModelName == "voice-cloning-model"); // Replace with actual model name
-
-            if (replicateModel == null)
-            {
-                replicateModel = new ReplicateModel
-                {
-                    ModelName = "voice-cloning-model", // Replace with actual model name
-                    ModelOwner = "replicate", // Replace with actual owner
-                    ReplicateModelIdentifier = "owner/model-name", // Replace with actual identifier
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _context.ReplicateModels.Add(replicateModel);
-                await _context.SaveChangesAsync();
-            }
-
-            // Create version record
-            var modelVersion = new ReplicateModelVersion
-            {
-                ReplicateModelId = replicateModel.ReplicateModelId,
-                VoiceModelId = voiceModel.VoiceModelId,
-                VersionIdentifier = $"training_{DateTime.UtcNow:yyyyMMddHHmmss}",
-                Status = "training",
-                TrainedAt = DateTime.UtcNow
-            };
-
-            _context.ReplicateModelVersions.Add(modelVersion);
-
             // Update voice model status
             voiceModel.Status = "training";
 
@@ -431,20 +441,18 @@ public class VoiceMimickingService : IVoiceMimickingService
                         .Select(a => a.AudioSnippet.AudioFilePath)
                         .ToList();
 
+                    // This now calls the updated TrainModelAsync that uses HuggingFace
                     await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId);
 
                     // Update status after training
-                    modelVersion.Status = "completed";
                     voiceModel.Status = "completed";
                     voiceModel.IsCompleted = true;
-                    voiceModel.ActiveReplicateVersionId = modelVersion.ReplicateVersionId;
 
                     await _context.SaveChangesAsync();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during model training for voice model {VoiceModelId}", voiceModelId);
-                    modelVersion.Status = "failed";
                     voiceModel.Status = "failed";
                     await _context.SaveChangesAsync();
                 }
@@ -653,6 +661,62 @@ public class VoiceMimickingService : IVoiceMimickingService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting step recordings for voice model {VoiceModelId}", voiceModelId);
+            throw;
+        }
+    }
+
+    public async Task<List<HuggingFaceModelResponse>> GetHuggingFaceModelsAsync()
+    {
+        try
+        {
+            // Get username from configuration
+            var username = _configuration["AI:HuggingFace:Username"];
+            if (string.IsNullOrEmpty(username))
+            {
+                throw new InvalidOperationException("HuggingFace username not configured");
+            }
+
+            // Get models from HuggingFace with your voice model prefix
+            var models = await _huggingFaceClient.GetUserModelsAsync(username, "voice-model-");
+
+            // Map to response objects
+            var response = models.Select(m => new HuggingFaceModelResponse
+            {
+                ModelId = m.ModelId,
+                Name = m.Name,
+                Description = m.Description,
+                LastModified = m.LastModified
+            }).ToList();
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving HuggingFace models");
+            throw;
+        }
+    }
+
+    public async Task<bool> DeleteHuggingFaceModelAsync(string modelName)
+    {
+        try
+        {
+            // First check if this model is in use by any of our voice models
+            var voiceModel = await _context.VoiceModels
+                .FirstOrDefaultAsync(v => v.HuggingFaceModelName == modelName);
+
+            if (voiceModel != null)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot delete model {modelName} as it is associated with voice model {voiceModel.VoiceModelId}");
+            }
+
+            // Delete from HuggingFace
+            return await _huggingFaceClient.DeleteModelAsync(modelName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting HuggingFace model: {ModelName}", modelName);
             throw;
         }
     }

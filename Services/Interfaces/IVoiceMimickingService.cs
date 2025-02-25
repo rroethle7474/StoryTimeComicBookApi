@@ -23,4 +23,7 @@ public interface IVoiceMimickingService
     Task<IEnumerable<StepResponse>> GetAllStepsAsync();
     Task<AudioSnippetUploadResponse> AddAudioSnippetForStepAsync(string voiceModelId, string stepId, AudioSnippetUploadRequest request);
     Task<IEnumerable<StepWithRecordingResponse>> GetStepRecordingsForModelAsync(string voiceModelId);
+    Task<SynthesizeSpeechResponse> SynthesizeSpeechForModelAsync(Guid modelId, string text);
+    Task<bool> DeleteHuggingFaceModelAsync(string modelName);
+    Task<List<HuggingFaceModelResponse>> GetHuggingFaceModelsAsync();
 } 

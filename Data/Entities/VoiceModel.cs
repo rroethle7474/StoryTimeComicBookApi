@@ -14,7 +14,10 @@ public class VoiceModel
     
     [MaxLength(1000)]
     public string VoiceModelDescription { get; set; } = string.Empty;
-    
+
+    [MaxLength(255)]
+    public string HuggingFaceModelName { get; set; } = string.Empty;
+
     public bool IsCompleted { get; set; }
     
     [Required]

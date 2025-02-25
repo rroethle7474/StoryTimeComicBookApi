@@ -1,25 +1,37 @@
+using StoryTimeComicBookApi.Data;
 using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
+using StoryTimeComicBookApi.Services.Clients;
 using StoryTimeComicBookApi.Services.Interfaces;
-
-namespace StoryTimeComicBookApi.Services;
+using System.Text.Json;
 
 public class VoiceModelTrainer : IVoiceModelTrainer
 {
+    private readonly VoiceMimicDataContext _context;
     private readonly ILogger<VoiceModelTrainer> _logger;
     private readonly IConfiguration _configuration;
+    private readonly HuggingFaceClient _huggingFaceClient;
     private readonly string _modelStoragePath;
+    private readonly string _huggingFaceUsername;
 
     public VoiceModelTrainer(
+        VoiceMimicDataContext context,
         IConfiguration configuration,
-        ILogger<VoiceModelTrainer> logger)
+        ILogger<VoiceModelTrainer> logger,
+        HuggingFaceClient huggingFaceClient)
     {
+        _context = context;
         _configuration = configuration;
         _logger = logger;
-        
+        _huggingFaceClient = huggingFaceClient;
+
+        _huggingFaceUsername = _configuration["AI:HuggingFace:Username"] ??
+            throw new InvalidOperationException("HuggingFace username not configured");
+
         // Get model storage path from configuration, or use default
-        _modelStoragePath = _configuration["VoiceModel:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "ModelStorage");
-        
+        _modelStoragePath = _configuration["VoiceModel:Path"] ??
+            Path.Combine(Directory.GetCurrentDirectory(), "ModelStorage");
+
         // Ensure storage directory exists
         if (!Directory.Exists(_modelStoragePath))
         {
@@ -41,23 +53,74 @@ public class VoiceModelTrainer : IVoiceModelTrainer
     {
         try
         {
-            // TODO: Implement actual model training logic
-            // This is where you would:
-            // 1. Load audio files
-            // 2. Preprocess audio data
-            // 3. Train the model using your chosen TTS platform
-            // 4. Save the trained model
-            
-            await Task.Delay(5000); // Simulate training time
-            
-            var modelPath = Path.Combine(_modelStoragePath, $"model_{modelId}.bin");
-            
-            // Simulate model saving
-            await File.WriteAllTextAsync(modelPath, "Simulated model data");
-            
-            _logger.LogInformation("Voice model training completed successfully. Model saved at: {ModelPath}", modelPath);
-            
-            return modelPath;
+            _logger.LogInformation("Starting voice model training for model {ModelId}", modelId);
+
+            // Generate a model name for HuggingFace based on the ID
+            string modelName = $"{_huggingFaceUsername}/voice-model-{modelId}";
+
+            // Check if model already exists
+            string existingModel = await _huggingFaceClient.CheckExistingModelAsync(modelName);
+
+            if (existingModel == null)
+            {
+                _logger.LogInformation("Creating new model: {ModelName}", modelName);
+
+                // Create new model
+                await _huggingFaceClient.CreateModelAsync(
+                    modelName,
+                    $"Voice model {modelId} created at {DateTime.UtcNow}");
+            }
+            else
+            {
+                _logger.LogInformation("Using existing model: {ModelName}", modelName);
+            }
+
+            // Process each audio file
+            int speakerCounter = 1;
+            foreach (var audioPath in audioFilePaths)
+            {
+                var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", audioPath.TrimStart('/'));
+
+                if (!File.Exists(fullPath))
+                {
+                    _logger.LogWarning("Audio file not found: {FilePath}", fullPath);
+                    continue;
+                }
+
+                byte[] audioData = await File.ReadAllBytesAsync(fullPath);
+                string speakerId = $"speaker_{speakerCounter++}";
+
+                _logger.LogInformation("Uploading audio sample {SpeakerId} for model {ModelName}",
+                    speakerId, modelName);
+
+                await _huggingFaceClient.UploadSpeakerEmbeddingsAsync(modelName, audioData, speakerId);
+            }
+
+            // Store model reference locally
+            var modelConfigPath = Path.Combine(_modelStoragePath, $"model_{modelId}.json");
+            var modelConfig = new
+            {
+                ModelId = modelId.ToString(),
+                HuggingFaceModel = modelName,
+                SpeakerCount = speakerCounter - 1,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await File.WriteAllTextAsync(
+                modelConfigPath,
+                JsonSerializer.Serialize(modelConfig, new JsonSerializerOptions { WriteIndented = true }));
+
+            // Update the voice model in the database with the HuggingFace model name
+            var voiceModel = await _context.VoiceModels.FindAsync(modelId);
+            if (voiceModel != null)
+            {
+                voiceModel.HuggingFaceModelName = modelName;
+                await _context.SaveChangesAsync();
+            }
+
+            _logger.LogInformation("Voice model training completed successfully. Model saved at: {ModelPath}", modelConfigPath);
+
+            return modelConfigPath;
         }
         catch (Exception ex)
         {
@@ -66,49 +129,54 @@ public class VoiceModelTrainer : IVoiceModelTrainer
         }
     }
 
-    public async Task<SynthesizeSpeechResponse> SynthesizeSpeechAsync(SynthesizeSpeechRequest request)
-    {
-        try
-        {
-            // TODO: Implement actual speech synthesis logic
-            // This is where you would:
-            // 1. Load the trained model
-            // 2. Generate speech using the model
-            // 3. Save the audio file
-            // 4. Return the URL
-            
-            var outputFileName = $"synthesized_{Guid.NewGuid()}.wav";
-            var outputPath = Path.Combine(_modelStoragePath, outputFileName);
-            
-            // Simulate audio generation
-            await File.WriteAllTextAsync(outputPath, "Simulated audio data");
-            
-            return new SynthesizeSpeechResponse
-            {
-                AudioUrl = outputPath
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error synthesizing speech");
-            throw;
-        }
-    }
-
     public async Task<string> SynthesizeSpeechAsync(string text, Guid modelId)
     {
         try
         {
-            // TODO: Implement actual speech synthesis logic
-            var outputFileName = $"synthesized_{Guid.NewGuid()}.wav";
-            var outputPath = Path.Combine(_modelStoragePath, outputFileName);
-            
-            // Simulate audio generation
-            await File.WriteAllTextAsync(outputPath, "Simulated audio data");
-            
-            _logger.LogInformation("Speech synthesized successfully. Audio saved at: {AudioPath}", outputPath);
-            
-            return outputPath;
+            _logger.LogInformation("Synthesizing speech for model {ModelId}", modelId);
+
+            // Load model configuration
+            var modelConfigPath = Path.Combine(_modelStoragePath, $"model_{modelId}.json");
+
+            if (!File.Exists(modelConfigPath))
+            {
+                throw new FileNotFoundException($"Model configuration not found for {modelId}");
+            }
+
+            var modelConfigJson = await File.ReadAllTextAsync(modelConfigPath);
+            var modelConfig = JsonSerializer.Deserialize<JsonElement>(modelConfigJson);
+
+            string huggingFaceModel = modelConfig.GetProperty("HuggingFaceModel").GetString();
+            int speakerCount = modelConfig.GetProperty("SpeakerCount").GetInt32();
+
+            if (speakerCount == 0)
+            {
+                throw new InvalidOperationException("No speakers available in this model");
+            }
+
+            // Use the first speaker by default
+            string speakerId = "speaker_1";
+
+            // Generate speech
+            byte[] audioData = await _huggingFaceClient.SynthesizeSpeechAsync(
+                huggingFaceModel,
+                text,
+                speakerId);
+
+            // Save the audio file
+            string outputFileName = $"synthesized_{Guid.NewGuid()}.wav";
+            string outputDirectory = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "audio", "synthesized");
+
+            if (!Directory.Exists(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+
+            string outputPath = Path.Combine(outputDirectory, outputFileName);
+            await File.WriteAllBytesAsync(outputPath, audioData);
+
+            // Return the web-accessible path
+            return $"/audio/synthesized/{outputFileName}";
         }
         catch (Exception ex)
         {
@@ -116,4 +184,4 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             throw;
         }
     }
-} 
+}

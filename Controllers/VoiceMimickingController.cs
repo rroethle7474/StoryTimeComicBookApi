@@ -376,4 +376,79 @@ public class VoiceMimickingController : ControllerBase
                 ex.Message));
         }
     }
+
+    [HttpPost("synthesize/{voiceModelId}")]
+    public async Task<ActionResult<ApiResponse<SynthesizeSpeechResponse>>> SynthesizeByModelId(
+    string voiceModelId,
+    [FromBody] SynthesizeSpeechRequest request)
+    {
+        try
+        {
+            // Convert string ID to Guid
+            if (!Guid.TryParse(voiceModelId, out var modelId))
+            {
+                return BadRequest(ApiResponse<SynthesizeSpeechResponse>.Failure(
+                    "Invalid voice model ID format",
+                    "INVALID_ID_FORMAT"));
+            }
+
+            // This will use your HuggingFace integration
+            var response = await _voiceMimickingService.SynthesizeSpeechForModelAsync(
+                modelId,
+                request.TextToSynthesize);
+
+            return Ok(ApiResponse<SynthesizeSpeechResponse>.Success(response));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ApiResponse<SynthesizeSpeechResponse>.Failure(
+                "Voice model not found",
+                "MODEL_NOT_FOUND",
+                ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error synthesizing speech for model {VoiceModelId}", voiceModelId);
+            return StatusCode(500, ApiResponse<SynthesizeSpeechResponse>.Failure(
+                "An error occurred while synthesizing speech",
+                "SYNTHESIS_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpGet("huggingface-models")]
+    public async Task<ActionResult<ApiResponse<List<HuggingFaceModelResponse>>>> GetHuggingFaceModels()
+    {
+        try
+        {
+            var models = await _voiceMimickingService.GetHuggingFaceModelsAsync();
+            return Ok(ApiResponse<List<HuggingFaceModelResponse>>.Success(models));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving HuggingFace models");
+            return StatusCode(500, ApiResponse<List<HuggingFaceModelResponse>>.Failure(
+                "An error occurred while retrieving models",
+                "MODEL_RETRIEVE_ERROR",
+                ex.Message));
+        }
+    }
+
+    [HttpDelete("huggingface-model/{modelName}")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteHuggingFaceModel(string modelName)
+    {
+        try
+        {
+            var result = await _voiceMimickingService.DeleteHuggingFaceModelAsync(modelName);
+            return Ok(ApiResponse<bool>.Success(result));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting HuggingFace model: {ModelName}", modelName);
+            return StatusCode(500, ApiResponse<bool>.Failure(
+                "An error occurred while deleting the model",
+                "MODEL_DELETE_ERROR",
+                ex.Message));
+        }
+    }
 }
