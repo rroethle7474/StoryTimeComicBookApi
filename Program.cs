@@ -34,6 +34,12 @@ builder.Services.AddHttpClient("AnthropicApi", client => {
     client.DefaultRequestHeaders.Add("Accept", "application/json");
 });
 
+builder.Services.AddHttpClient("ReplicateAudioClient", client => {
+    client.Timeout = TimeSpan.FromMinutes(2);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+builder.Services.AddScoped<ReplicateAudioClient>();
+
 // Register the image generation service
 builder.Services.AddScoped<IImageGenerationService, ReplicateImageGenerationService>();
 

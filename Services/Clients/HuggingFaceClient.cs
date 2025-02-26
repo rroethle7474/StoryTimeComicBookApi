@@ -1,11 +1,7 @@
-﻿using System.Text;
-using System.Text.Json;
+﻿using StoryTimeComicBookApi.Models.Huggingface;
 using System.Net.Http.Headers;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using StoryTimeComicBookApi.Models.Gemini;
-using System.Net.Http;
-using StoryTimeComicBookApi.Models.Huggingface;
+using System.Text;
+using System.Text.Json;
 
 namespace StoryTimeComicBookApi.Services.Clients;
 
@@ -15,6 +11,7 @@ public class HuggingFaceClient
     private readonly ILogger<HuggingFaceClient> _logger;
     private readonly string _apiKey;
     private readonly string _baseModelId = "coqui/xtts-v2";
+    private readonly string _huggingFaceUserName;
 
     public HuggingFaceClient(
         IHttpClientFactory httpClientFactory,
@@ -23,16 +20,18 @@ public class HuggingFaceClient
     {
         _apiKey = configuration["AI:HuggingFace:ApiKey"] ??
             throw new InvalidOperationException("HuggingFace API key not configured");
+        _huggingFaceUserName = configuration["AI:HuggingFace:Username"] ??
+            throw new InvalidOperationException("HuggingFace username not configured");
         _httpClient = httpClientFactory.CreateClient("HuggingFaceApi");
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
         _logger = logger;
     }
 
-    public async Task<string> CheckExistingModelAsync(string modelName)
+    public async Task<string> CheckExistingModelAsync(string modelName, string userName)
     {
         try
         {
-            var response = await _httpClient.GetAsync($"https://huggingface.co/api/models/{modelName}");
+            var response = await _httpClient.GetAsync($"https://huggingface.co/api/models/{userName}/{modelName}");
 
             if (response.IsSuccessStatusCode)
             {
@@ -86,66 +85,85 @@ public class HuggingFaceClient
     }
 
     public async Task<bool> UploadSpeakerEmbeddingsAsync(string modelName, byte[] audioData, string speakerId)
-{
-    try
     {
-        // Create a multipart form content
-        using var formContent = new MultipartFormDataContent();
-
-        // Add the audio file
-        var audioContent = new ByteArrayContent(audioData);
-        audioContent.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/wav");
-        formContent.Add(audioContent, "audio", $"{speakerId}.wav");
-
-        // Add speaker ID
-        formContent.Add(new StringContent(speakerId), "speaker_id");
-
-        // Add base model ID
-        formContent.Add(new StringContent(_baseModelId), "base_model");
-
-        var response = await _httpClient.PostAsync(
-            $"https://api-inference.huggingface.co/models/{modelName}/speaker-embeddings",
-            formContent);
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            var errorContent = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Failed to upload speaker embeddings: {errorContent}");
-        }
+            // Create a multipart form content
+            using var formContent = new MultipartFormDataContent();
 
-        return true;
+            // Add the audio file
+            var audioContent = new ByteArrayContent(audioData);
+            audioContent.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/wav");
+            formContent.Add(audioContent, "audio", $"{speakerId}.wav");
+
+            // Add text parameter (typically what you want to synthesize - just a placeholder for training)
+            formContent.Add(new StringContent("This is a voice sample for training."), "text");
+
+            // Add language parameter (optional)
+            formContent.Add(new StringContent("en"), "language");
+
+            // Add speaker ID
+            formContent.Add(new StringContent(speakerId), "speaker_id");
+
+            // Use the base XTTS-v2 model directly
+            var response = await _httpClient.PostAsync(
+                $"https://api-inference.huggingface.co/models/coqui/XTTS-v2",
+                formContent);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                throw new Exception($"Failed to process voice sample: {errorContent}");
+            }
+
+            // Store the audio file in your repository
+            var fileContent = new ByteArrayContent(audioData);
+            fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/wav");
+
+            // Create a repository file
+            var uploadResponse = await _httpClient.PutAsync(
+                $"https://huggingface.co/api/repos/{_huggingFaceUserName}/{modelName}/add-file?path=speakers/{speakerId}.wav",
+                fileContent);
+
+            if (!uploadResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await uploadResponse.Content.ReadAsStringAsync();
+                throw new Exception($"Failed to upload audio file to repository: {errorContent}");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing voice sample for model: {ModelName}", modelName);
+            throw;
+        }
     }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error uploading speaker embeddings for model: {ModelName}", modelName);
-        throw;
-    }
-}
 
     public async Task<byte[]> SynthesizeSpeechAsync(string modelName, string text, string speakerId)
     {
         try
         {
-            // Create a proper nested object structure
-            var requestObj = new
-            {
-                inputs = new
-                {
-                    text = text,
-                    speaker_id = speakerId,
-                    language = "en" // Can be parameterized
-                }
-            };
+            // Create the request payload
+            var requestContent = new MultipartFormDataContent();
 
-            var json = JsonSerializer.Serialize(requestObj);
-            var content = new StringContent(
-                json,
-                Encoding.UTF8,
-                "application/json");
+            // Add the text to synthesize
+            requestContent.Add(new StringContent(text), "text");
 
+            // Add language parameter
+            requestContent.Add(new StringContent("en"), "language");
+
+            // Add speaker ID
+            requestContent.Add(new StringContent(speakerId), "speaker_id");
+
+            // Add reference audio path from your repository
+            var referenceAudioUrl = $"https://huggingface.co/{_huggingFaceUserName}/{modelName}/resolve/main/speakers/{speakerId}.wav";
+            requestContent.Add(new StringContent(referenceAudioUrl), "speaker_wav_url");
+
+            // Call the XTTS-v2 model
             var response = await _httpClient.PostAsync(
-                $"https://api-inference.huggingface.co/models/{modelName}",
-                content);
+                "https://api-inference.huggingface.co/models/coqui/XTTS-v2",
+                requestContent);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -153,6 +171,7 @@ public class HuggingFaceClient
                 throw new Exception($"Failed to synthesize speech: {errorContent}");
             }
 
+            // Return the audio bytes
             return await response.Content.ReadAsByteArrayAsync();
         }
         catch (Exception ex)
@@ -197,7 +216,8 @@ public class HuggingFaceClient
     {
         try
         {
-            var response = await _httpClient.DeleteAsync($"https://huggingface.co/api/repos/delete?repo={modelName}");
+            var fullModelName = $"{_huggingFaceUserName}/{modelName}";
+            var response = await _httpClient.DeleteAsync($"https://huggingface.co/api/repos/delete?repo={fullModelName}");
 
             if (!response.IsSuccessStatusCode)
             {

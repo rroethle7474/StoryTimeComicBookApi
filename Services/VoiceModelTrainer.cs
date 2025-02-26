@@ -4,6 +4,7 @@ using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Clients;
 using StoryTimeComicBookApi.Services.Interfaces;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 public class VoiceModelTrainer : IVoiceModelTrainer
 {
@@ -49,17 +50,40 @@ public class VoiceModelTrainer : IVoiceModelTrainer
         };
     }
 
-    public async Task<string> TrainModelAsync(List<string> audioFilePaths, Guid modelId)
+    public async Task<string> TrainModelAsync(List<string> audioFilePaths, Guid modelId, string voiceModelName)
     {
         try
         {
             _logger.LogInformation("Starting voice model training for model {ModelId}", modelId);
 
-            // Generate a model name for HuggingFace based on the ID
-            string modelName = $"{_huggingFaceUsername}/voice-model-{modelId}";
+            // Get the voice model from database to use its name
+            //var voiceModel = await _context.VoiceModels.FindAsync(modelId);
+            //if (voiceModel == null)
+            //{
+            //    throw new KeyNotFoundException($"Voice model with ID {modelId} not found");
+            //}
+
+            // Create a sanitized version of the model name
+            string sanitizedModelName = SanitizeModelName(voiceModelName);
+
+            // Add a short random suffix for uniqueness (6 characters)
+            string shortRandomSuffix = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Substring(0, 6)
+                .Replace("/", "_").Replace("+", "-");
+
+            // Construct the full model name for HuggingFace
+            string modelName = $"voice-model-{sanitizedModelName}";
+
+            // Ensure the total length is under 96 characters
+            if (modelName.Length > 96)
+            {
+                // Truncate the sanitized name part if needed
+                int excessLength = modelName.Length - 96;
+                sanitizedModelName = sanitizedModelName.Substring(0, Math.Max(sanitizedModelName.Length - excessLength, 10));
+                modelName = $"{_huggingFaceUsername}/voice-model-{sanitizedModelName}";
+            }
 
             // Check if model already exists
-            string existingModel = await _huggingFaceClient.CheckExistingModelAsync(modelName);
+            string existingModel = await _huggingFaceClient.CheckExistingModelAsync(modelName, _huggingFaceUsername);
 
             if (existingModel == null)
             {
@@ -68,7 +92,7 @@ public class VoiceModelTrainer : IVoiceModelTrainer
                 // Create new model
                 await _huggingFaceClient.CreateModelAsync(
                     modelName,
-                    $"Voice model {modelId} created at {DateTime.UtcNow}");
+                    $"Voice model for {voiceModelName} created at {DateTime.UtcNow}");
             }
             else
             {
@@ -110,23 +134,46 @@ public class VoiceModelTrainer : IVoiceModelTrainer
                 modelConfigPath,
                 JsonSerializer.Serialize(modelConfig, new JsonSerializerOptions { WriteIndented = true }));
 
-            // Update the voice model in the database with the HuggingFace model name
-            var voiceModel = await _context.VoiceModels.FindAsync(modelId);
-            if (voiceModel != null)
-            {
-                voiceModel.HuggingFaceModelName = modelName;
-                await _context.SaveChangesAsync();
-            }
+            //if (voiceModel != null)
+            //{
+            //    voiceModel.HuggingFaceModelName = modelName;
+            //    await _context.SaveChangesAsync();
+            //}
 
             _logger.LogInformation("Voice model training completed successfully. Model saved at: {ModelPath}", modelConfigPath);
 
-            return modelConfigPath;
+            return modelName;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during voice model training for model {ModelId}", modelId);
             throw;
         }
+    }
+
+    private string SanitizeModelName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "unnamed";
+
+        // Replace spaces and invalid characters with hyphens
+        string sanitized = Regex.Replace(name, @"[^a-zA-Z0-9\-_\.]", "-");
+
+        // Remove consecutive hyphens
+        sanitized = Regex.Replace(sanitized, @"\-{2,}", "-");
+
+        // Remove leading/trailing hyphens and dots
+        sanitized = sanitized.Trim('-', '.');
+
+        // Ensure it doesn't end with .git
+        if (sanitized.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            sanitized = sanitized.Substring(0, sanitized.Length - 4);
+
+        // If empty after sanitization, use a default
+        if (string.IsNullOrEmpty(sanitized))
+            return "model";
+
+        return sanitized.ToLowerInvariant();
     }
 
     public async Task<string> SynthesizeSpeechAsync(string text, Guid modelId)

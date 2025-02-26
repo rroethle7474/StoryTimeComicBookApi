@@ -23,7 +23,7 @@ namespace StoryTimeComicBookApi.Services
 
         public async Task<string> GenerateComicStyleImage(string imagePath, string userDescription, string outputFolder, string comicBookId)
         {
-            var replicateApiKey = _configuration["AI:Replicate:ApiKey"];
+            var replicateApiKey = _configuration["AI:Replicate:ImageApiKey"];
             if (string.IsNullOrEmpty(replicateApiKey))
             {
                 throw new InvalidOperationException("Replicate API key is not configured");

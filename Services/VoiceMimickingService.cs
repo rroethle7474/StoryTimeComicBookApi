@@ -181,11 +181,12 @@ public class VoiceMimickingService : IVoiceMimickingService
             {
                 try
                 {
-                    await _modelTrainer.TrainModelAsync(audioSnippets, voiceModel.VoiceModelId);
+                    var huggingfaceModelName = await _modelTrainer.TrainModelAsync(audioSnippets, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
                     
                     // Update model status after successful training
                     voiceModel.Status = "completed";
                     voiceModel.IsCompleted = true;
+                    voiceModel.HuggingFaceModelName = huggingfaceModelName;
                     await _context.SaveChangesAsync();
                 }
                 catch (Exception ex)
@@ -442,10 +443,11 @@ public class VoiceMimickingService : IVoiceMimickingService
                         .ToList();
 
                     // This now calls the updated TrainModelAsync that uses HuggingFace
-                    await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId);
+                    var huggingFaceModelName = await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
 
                     // Update status after training
                     voiceModel.Status = "completed";
+                    voiceModel.HuggingFaceModelName = huggingFaceModelName;
                     voiceModel.IsCompleted = true;
 
                     await _context.SaveChangesAsync();
