@@ -82,11 +82,40 @@ public class VoiceMimickingService : IVoiceMimickingService
                 VoiceModelName = vm.VoiceModelName,
                 VoiceModelDescription = vm.VoiceModelDescription,
                 IsCompleted = vm.IsCompleted,
-                TrainingDate = vm.TrainingDate
+                TrainingDate = vm.TrainingDate,
+                ReplicateModelId = vm.ReplicateModelId.ToString(),
             })
             .ToListAsync();
 
         return incompleteVoiceModels;
+    }
+
+    public async Task<IEnumerable<ReplicateModelListResponse>> GetAvailableReplicateModels(string existingReplicateId = null)
+    {
+        // Parse the existingReplicateId to Guid if provided
+        Guid? existingId = null;
+        if (!string.IsNullOrEmpty(existingReplicateId) && Guid.TryParse(existingReplicateId, out Guid parsedId))
+        {
+            existingId = parsedId;
+        }
+
+        // Query for all replicate models that are either:
+        // 1. Not used by any voice model, OR
+        // 2. Match the provided existingReplicateId
+        var availableModels = await _context.ReplicateModels
+            .Where(rm =>
+                !_context.VoiceModels.Any(vm => vm.ReplicateModelId == rm.ReplicateModelId) ||
+                (existingId.HasValue && rm.ReplicateModelId == existingId.Value))
+            .Select(r => new ReplicateModelListResponse
+            {
+                ReplicateModelId = r.ReplicateModelId.ToString(),
+                ReplicateModelName = r.ModelName,
+                // Optionally indicate if this is the existing model
+                IsCurrentlySelected = existingId.HasValue && r.ReplicateModelId == existingId.Value
+            })
+            .ToListAsync();
+
+        return availableModels;
     }
 
     public async Task<VoiceModelUpdateResponse> UpdateVoiceModelAsync(string voiceModelId, VoiceModelUpdateRequest request)
@@ -107,6 +136,15 @@ public class VoiceMimickingService : IVoiceMimickingService
             voiceModel.VoiceModelDescription = request.VoiceModelDescription;
         }
 
+        if(!string.IsNullOrEmpty(request.ReplicateModelId))
+        {
+            bool isValid = Guid.TryParse(request.ReplicateModelId, out Guid result);
+            if (isValid)
+            {
+                voiceModel.ReplicateModelId = result;
+            }
+        }
+
         if (request.IsCompleted.HasValue)
         {
             voiceModel.IsCompleted = request.IsCompleted.Value;
@@ -120,6 +158,7 @@ public class VoiceMimickingService : IVoiceMimickingService
             VoiceModelId = voiceModel.VoiceModelId.ToString(),
             VoiceModelName = voiceModel.VoiceModelName,
             VoiceModelDescription = voiceModel.VoiceModelDescription,
+            ReplicateModelId = voiceModel.ReplicateModelId.ToString(),
             IsCompleted = voiceModel.IsCompleted,
             TrainingDate = voiceModel.TrainingDate
         };

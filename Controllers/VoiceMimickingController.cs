@@ -155,6 +155,25 @@ public class VoiceMimickingController : ControllerBase
         }
     }
 
+
+    [HttpGet("available-voice-training-models")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<ReplicateModelListResponse>>>> GetAvailableReplicateModels([FromQuery] string existingReplicateId = null)
+    {
+        try
+        {
+            var availableModels = await _voiceMimickingService.GetAvailableReplicateModels(existingReplicateId);
+            return Ok(ApiResponse<IEnumerable<ReplicateModelListResponse>>.Success(availableModels));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving available replicate models");
+            return StatusCode(500, ApiResponse<IEnumerable<ReplicateModelListResponse>>.Failure(
+                "An error occurred while retrieving available replicate models",
+                "REPLICATE_MODEL_ERROR",
+                ex.Message));
+        }
+    }
+
     [HttpPost("voice-model/{voiceModelId}/audio-snippet")]
     public async Task<ActionResult<ApiResponse<AudioSnippetUploadResponse>>> AddAudioSnippetToModel(
         string voiceModelId,

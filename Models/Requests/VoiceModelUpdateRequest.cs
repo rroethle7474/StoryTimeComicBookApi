@@ -5,5 +5,6 @@
         public string? VoiceModelName { get; set; }
         public string? VoiceModelDescription { get; set; }
         public bool? IsCompleted { get; set; }
+        public string? ReplicateModelId { get; set; }
     }
 }

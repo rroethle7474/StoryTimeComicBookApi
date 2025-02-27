@@ -7,5 +7,7 @@
         public string VoiceModelDescription { get; set; }
         public bool IsCompleted { get; set; }
         public DateTime TrainingDate { get; set; }
+        public string? ReplicateModelId { get; set; }
+        public string? ReplicateModelName { get; set; }
     }
 }

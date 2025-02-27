@@ -7,4 +7,6 @@ public class VoiceModelListResponse
     public string VoiceModelDescription { get; set; } = string.Empty;
     public bool IsCompleted { get; set; }
     public DateTime TrainingDate { get; set; }
-} 
+    public string? ReplicateModelId { get; set; }
+    public string? ReplicateModelName { get; set; }
+}

@@ -12,7 +12,7 @@ public class VoiceMimicDataContext : DbContext
     public DbSet<AudioSnippet> AudioSnippets { get; set; }
     public DbSet<VoiceModel> VoiceModels { get; set; }
     public DbSet<ReplicateModel> ReplicateModels { get; set; }
-    public DbSet<ReplicateModelVersion> ReplicateModelVersions { get; set; }
+    // Remove: public DbSet<ReplicateModelVersion> ReplicateModelVersions { get; set; }
     public DbSet<VoiceModelAudioSnippet> VoiceModelAudioSnippets { get; set; }
     public DbSet<VoiceRecordingStep> VoiceRecordingSteps { get; set; }
 
@@ -56,25 +56,17 @@ public class VoiceMimicDataContext : DbContext
             .IsUnique()
             .HasFilter("\"StepId\" IS NOT NULL");
 
-        // Configure ReplicateModelVersion relationships
-        modelBuilder.Entity<ReplicateModelVersion>()
-            .HasOne(rv => rv.ReplicateModel)
-            .WithMany(rm => rm.ModelVersions)
-            .HasForeignKey(rv => rv.ReplicateModelId);
-
-        modelBuilder.Entity<ReplicateModelVersion>()
-            .HasOne(rv => rv.VoiceModel)
-            .WithMany(vm => vm.ModelVersions)
-            .HasForeignKey(rv => rv.VoiceModelId);
+        // Remove ReplicateModelVersion relationships
+        // Configure new relationship between VoiceModel and ReplicateModel
+        modelBuilder.Entity<VoiceModel>()
+            .HasOne(v => v.ReplicateModel)
+            .WithMany(r => r.VoiceModels)
+            .HasForeignKey(v => v.ReplicateModelId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // Configure Status columns
         modelBuilder.Entity<VoiceModel>()
             .Property(v => v.Status)
-            .HasMaxLength(20)
-            .HasDefaultValue("pending");
-
-        modelBuilder.Entity<ReplicateModelVersion>()
-            .Property(rv => rv.Status)
             .HasMaxLength(20)
             .HasDefaultValue("pending");
 
@@ -83,8 +75,8 @@ public class VoiceMimicDataContext : DbContext
             .HasIndex(rm => rm.ReplicateModelIdentifier)
             .IsUnique();
 
-        modelBuilder.Entity<ReplicateModelVersion>()
-            .HasIndex(rv => new { rv.VoiceModelId, rv.VersionIdentifier })
-            .IsUnique();
+        // Add index for new foreign key
+        modelBuilder.Entity<VoiceModel>()
+            .HasIndex(v => v.ReplicateModelId);
     }
 }

@@ -8,6 +8,7 @@ public interface IVoiceMimickingService
     Task<CreateVoiceModelResponse> CreateVoiceModelAsync(CreateVoiceModelRequest request);
     Task<VoiceModelUpdateResponse> UpdateVoiceModelAsync(string voiceModelId, VoiceModelUpdateRequest request);
     Task<IEnumerable<VoiceModelListResponse>> GetIncompleteVoiceModelsAsync();
+    Task<IEnumerable<ReplicateModelListResponse>> GetAvailableReplicateModels(string existingReplicateId = null);
     Task<SynthesizeSpeechResponse> SynthesizeSpeechAsync(SynthesizeSpeechRequest request);
     Task<AudioSnippetUploadResponse> UploadAudioSnippetAsync(AudioSnippetUploadRequest request);
     Task<TrainModelResponse> TrainModelAsync(TrainModelRequest request);
