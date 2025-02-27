@@ -442,7 +442,7 @@ public class VoiceMimickingService : IVoiceMimickingService
                         .Select(a => a.AudioSnippet.AudioFilePath)
                         .ToList();
 
-                    // This now calls the updated TrainModelAsync that uses HuggingFace
+                    
                     var huggingFaceModelName = await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
 
                     // Update status after training

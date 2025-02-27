@@ -116,8 +116,21 @@ namespace StoryTimeComicBookApi.Services
                     {
                         completed = true;
                         var outputData = statusData["output"];
-                        var outputDict = JsonSerializer.Deserialize<Dictionary<string, object>>(outputData.ToString());
-                        outputUrl = outputDict?["image"].ToString();
+                        // error
+                        if (outputData is JsonElement element && element.ValueKind == JsonValueKind.Array)
+                        {
+                            // Get the first item from the array
+                            outputUrl = element[0].GetString();
+                        }
+                        else if (outputData is JsonElement obj && obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty("image", out JsonElement imageElement))
+                        {
+                            // Fall back to previous behavior if it's an object with an "image" property
+                            outputUrl = imageElement.GetString();
+                        }
+                        else
+                        {
+                            throw new Exception("Unexpected response format from Replicate API");
+                        }
                     }
                     else if (status == "failed")
                     {

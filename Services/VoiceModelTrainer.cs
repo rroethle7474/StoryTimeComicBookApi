@@ -11,23 +11,19 @@ public class VoiceModelTrainer : IVoiceModelTrainer
     private readonly VoiceMimicDataContext _context;
     private readonly ILogger<VoiceModelTrainer> _logger;
     private readonly IConfiguration _configuration;
-    private readonly HuggingFaceClient _huggingFaceClient;
+    private readonly ReplicateAudioClient _replicateClient;
     private readonly string _modelStoragePath;
-    private readonly string _huggingFaceUsername;
 
     public VoiceModelTrainer(
         VoiceMimicDataContext context,
         IConfiguration configuration,
         ILogger<VoiceModelTrainer> logger,
-        HuggingFaceClient huggingFaceClient)
+        ReplicateAudioClient replicateClient)
     {
         _context = context;
         _configuration = configuration;
         _logger = logger;
-        _huggingFaceClient = huggingFaceClient;
-
-        _huggingFaceUsername = _configuration["AI:HuggingFace:Username"] ??
-            throw new InvalidOperationException("HuggingFace username not configured");
+        _replicateClient = replicateClient;
 
         // Get model storage path from configuration, or use default
         _modelStoragePath = _configuration["VoiceModel:Path"] ??
@@ -56,124 +52,59 @@ public class VoiceModelTrainer : IVoiceModelTrainer
         {
             _logger.LogInformation("Starting voice model training for model {ModelId}", modelId);
 
-            // Get the voice model from database to use its name
-            //var voiceModel = await _context.VoiceModels.FindAsync(modelId);
-            //if (voiceModel == null)
-            //{
-            //    throw new KeyNotFoundException($"Voice model with ID {modelId} not found");
-            //}
+            // With StyleTTS2, we don't need to "train" a model in the traditional sense
+            // Instead, we prepare the voice samples and store the reference for later use
+            
+            // Prepare the voice samples by creating a zip file and uploading it
+            var voiceSamplesUrl = await _replicateClient.PrepareVoiceSamplesAsync(audioFilePaths);
+            
+            _logger.LogInformation("Voice samples prepared and uploaded: {Url}", voiceSamplesUrl);
 
-            // Create a sanitized version of the model name
-            string sanitizedModelName = SanitizeModelName(voiceModelName);
-
-            // Add a short random suffix for uniqueness (6 characters)
-            string shortRandomSuffix = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Substring(0, 6)
-                .Replace("/", "_").Replace("+", "-");
-
-            // Construct the full model name for HuggingFace
-            string modelName = $"voice-model-{sanitizedModelName}";
-
-            // Ensure the total length is under 96 characters
-            if (modelName.Length > 96)
+            // Test the voice model with a simple sample text
+            var testText = "This is a test of the voice model for " + SanitizeModelName(voiceModelName);
+            
+            // Create a prediction with the voice samples
+            var predictionId = await _replicateClient.CreatePredictionAsync(testText, voiceSamplesUrl);
+            
+            // Wait for the test prediction to complete
+            var audioData = await _replicateClient.GetPredictionResultAsync(predictionId);
+            
+            // Save the test audio
+            string testOutputFileName = $"test_{modelId}.wav";
+            string testOutputDirectory = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "audio", "tests");
+            
+            if (!Directory.Exists(testOutputDirectory))
             {
-                // Truncate the sanitized name part if needed
-                int excessLength = modelName.Length - 96;
-                sanitizedModelName = sanitizedModelName.Substring(0, Math.Max(sanitizedModelName.Length - excessLength, 10));
-                modelName = $"{_huggingFaceUsername}/voice-model-{sanitizedModelName}";
+                Directory.CreateDirectory(testOutputDirectory);
             }
+            
+            string testOutputPath = Path.Combine(testOutputDirectory, testOutputFileName);
+            await File.WriteAllBytesAsync(testOutputPath, audioData);
 
-            // Check if model already exists
-            string existingModel = await _huggingFaceClient.CheckExistingModelAsync(modelName, _huggingFaceUsername);
-
-            if (existingModel == null)
-            {
-                _logger.LogInformation("Creating new model: {ModelName}", modelName);
-
-                // Create new model
-                await _huggingFaceClient.CreateModelAsync(
-                    modelName,
-                    $"Voice model for {voiceModelName} created at {DateTime.UtcNow}");
-            }
-            else
-            {
-                _logger.LogInformation("Using existing model: {ModelName}", modelName);
-            }
-
-            // Process each audio file
-            int speakerCounter = 1;
-            foreach (var audioPath in audioFilePaths)
-            {
-                var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", audioPath.TrimStart('/'));
-
-                if (!File.Exists(fullPath))
-                {
-                    _logger.LogWarning("Audio file not found: {FilePath}", fullPath);
-                    continue;
-                }
-
-                byte[] audioData = await File.ReadAllBytesAsync(fullPath);
-                string speakerId = $"speaker_{speakerCounter++}";
-
-                _logger.LogInformation("Uploading audio sample {SpeakerId} for model {ModelName}",
-                    speakerId, modelName);
-
-                await _huggingFaceClient.UploadSpeakerEmbeddingsAsync(modelName, audioData, speakerId);
-            }
-
-            // Store model reference locally
+            // Store model information in local storage
             var modelConfigPath = Path.Combine(_modelStoragePath, $"model_{modelId}.json");
             var modelConfig = new
             {
                 ModelId = modelId.ToString(),
-                HuggingFaceModel = modelName,
-                SpeakerCount = speakerCounter - 1,
-                CreatedAt = DateTime.UtcNow
+                VoiceSamplesUrl = voiceSamplesUrl,
+                CreatedAt = DateTime.UtcNow,
+                ModelName = voiceModelName,
+                TestAudioPath = $"/audio/tests/{testOutputFileName}"
             };
 
             await File.WriteAllTextAsync(
                 modelConfigPath,
                 JsonSerializer.Serialize(modelConfig, new JsonSerializerOptions { WriteIndented = true }));
 
-            //if (voiceModel != null)
-            //{
-            //    voiceModel.HuggingFaceModelName = modelName;
-            //    await _context.SaveChangesAsync();
-            //}
+            _logger.LogInformation("Voice model setup completed successfully. Model config saved at: {ModelPath}", modelConfigPath);
 
-            _logger.LogInformation("Voice model training completed successfully. Model saved at: {ModelPath}", modelConfigPath);
-
-            return modelName;
+            return modelConfigPath;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during voice model training for model {ModelId}", modelId);
+            _logger.LogError(ex, "Error during voice model setup for model {ModelId}", modelId);
             throw;
         }
-    }
-
-    private string SanitizeModelName(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return "unnamed";
-
-        // Replace spaces and invalid characters with hyphens
-        string sanitized = Regex.Replace(name, @"[^a-zA-Z0-9\-_\.]", "-");
-
-        // Remove consecutive hyphens
-        sanitized = Regex.Replace(sanitized, @"\-{2,}", "-");
-
-        // Remove leading/trailing hyphens and dots
-        sanitized = sanitized.Trim('-', '.');
-
-        // Ensure it doesn't end with .git
-        if (sanitized.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-            sanitized = sanitized.Substring(0, sanitized.Length - 4);
-
-        // If empty after sanitization, use a default
-        if (string.IsNullOrEmpty(sanitized))
-            return "model";
-
-        return sanitized.ToLowerInvariant();
     }
 
     public async Task<string> SynthesizeSpeechAsync(string text, Guid modelId)
@@ -193,22 +124,19 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             var modelConfigJson = await File.ReadAllTextAsync(modelConfigPath);
             var modelConfig = JsonSerializer.Deserialize<JsonElement>(modelConfigJson);
 
-            string huggingFaceModel = modelConfig.GetProperty("HuggingFaceModel").GetString();
-            int speakerCount = modelConfig.GetProperty("SpeakerCount").GetInt32();
+            // Get the voice samples URL
+            var voiceSamplesUrl = modelConfig.GetProperty("VoiceSamplesUrl").GetString();
 
-            if (speakerCount == 0)
+            if (string.IsNullOrEmpty(voiceSamplesUrl))
             {
-                throw new InvalidOperationException("No speakers available in this model");
+                throw new InvalidOperationException("No voice samples URL found in model configuration");
             }
 
-            // Use the first speaker by default
-            string speakerId = "speaker_1";
+            // Create a prediction with Replicate
+            var predictionId = await _replicateClient.CreatePredictionAsync(text, voiceSamplesUrl);
 
-            // Generate speech
-            byte[] audioData = await _huggingFaceClient.SynthesizeSpeechAsync(
-                huggingFaceModel,
-                text,
-                speakerId);
+            // Get the prediction result (audio data)
+            var audioData = await _replicateClient.GetPredictionResultAsync(predictionId);
 
             // Save the audio file
             string outputFileName = $"synthesized_{Guid.NewGuid()}.wav";
@@ -230,5 +158,26 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             _logger.LogError(ex, "Error synthesizing speech for model {ModelId}", modelId);
             throw;
         }
+    }
+
+    private string SanitizeModelName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "unnamed";
+
+        // Replace spaces and invalid characters with hyphens
+        string sanitized = Regex.Replace(name, @"[^a-zA-Z0-9\-_\.]", "-");
+
+        // Remove consecutive hyphens
+        sanitized = Regex.Replace(sanitized, @"\-{2,}", "-");
+
+        // Remove leading/trailing hyphens and dots
+        sanitized = sanitized.Trim('-', '.');
+
+        // If empty after sanitization, use a default
+        if (string.IsNullOrEmpty(sanitized))
+            return "model";
+
+        return sanitized.ToLowerInvariant();
     }
 }

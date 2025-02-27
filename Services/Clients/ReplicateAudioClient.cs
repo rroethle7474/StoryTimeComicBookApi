@@ -1,6 +1,7 @@
 ﻿using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.IO.Compression;
 
 namespace StoryTimeComicBookApi.Services.Clients;
 
@@ -10,8 +11,11 @@ public class ReplicateAudioClient
     private readonly ILogger<ReplicateAudioClient> _logger;
     private readonly string _apiKey;
     private const string BASE_URL = "https://api.replicate.com/v1";
-    private const string TORTOISE_MODEL = "afiaka87/tortoise-tts";
-    private const string MODEL_VERSION = "2ef373b6f2253fc83ee82ca2b3e959a8ed310ef2b7f45a481fe76d3bd25b8b23";
+    
+    // Update to use the user's custom model
+    private const string CUSTOM_MODEL = "rroethle7474/voice-model-01";
+    // This will be populated once the model is pushed to Replicate
+    private string _modelVersion;
 
     public ReplicateAudioClient(
         IHttpClientFactory httpClientFactory,
@@ -22,119 +26,176 @@ public class ReplicateAudioClient
             throw new InvalidOperationException("Replicate API key not configured");
 
         _httpClient = httpClientFactory.CreateClient("ReplicateAudioClient");
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Token", _apiKey);
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        // Get the model version from configuration if available
+        _modelVersion = configuration["AI:Replicate:ModelVersion"] ?? "";
 
         _logger = logger;
     }
 
     /// <summary>
-    /// Uploads a voice sample file to Replicate and returns the URL
+    /// Prepares voice samples for use with StyleTTS2 by creating a zip file
     /// </summary>
-    public async Task<string> UploadVoiceSampleAsync(byte[] audioData, string voiceId)
+    /// <param name="audioFiles">List of audio file paths</param>
+    /// <returns>URL to the uploaded zip file</returns>
+    public async Task<string> PrepareVoiceSamplesAsync(List<string> audioFilePaths)
     {
         try
         {
-            // For Replicate, we need to first upload the file to get a URL
-            var uploadUrl = await GetUploadUrlAsync();
+            _logger.LogInformation("Preparing voice samples for StyleTTS2");
 
-            // Upload the audio file
-            var audioUrl = await UploadFileAsync(uploadUrl, audioData, $"{voiceId}.wav");
-
-            return audioUrl;
+            // Create a temporary zip file
+            string zipPath = Path.Combine(Path.GetTempPath(), $"voice_samples_{Guid.NewGuid()}.zip");
+            
+            try
+            {
+                // Create the zip file containing all audio samples
+                using (var zipArchive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+                {
+                    int fileCounter = 1;
+                    foreach (var audioPath in audioFilePaths)
+                    {
+                        var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", audioPath.TrimStart('/'));
+                        
+                        if (!File.Exists(fullPath))
+                        {
+                            _logger.LogWarning("Audio file not found: {FilePath}", fullPath);
+                            continue;
+                        }
+                        
+                        // Add the file to the zip archive with a simple numbered name
+                        var entryName = $"sample_{fileCounter++}.wav";
+                        zipArchive.CreateEntryFromFile(fullPath, entryName);
+                        _logger.LogDebug("Added {FileName} to zip archive", entryName);
+                    }
+                }
+                
+                // Read the zip file
+                byte[] zipData = await File.ReadAllBytesAsync(zipPath);
+                
+                // Convert the zip file to a data URI
+                string base64Data = Convert.ToBase64String(zipData);
+                string dataUri = $"data:application/zip;base64,{base64Data}";
+                
+                _logger.LogInformation("Created data URI for voice samples (size: {Size} bytes)", zipData.Length);
+                
+                return dataUri;
+            }
+            finally
+            {
+                // Clean up the temporary zip file
+                if (File.Exists(zipPath))
+                {
+                    File.Delete(zipPath);
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error uploading voice sample");
-            throw;
-        }
-    }
-
-    private async Task<string> GetUploadUrlAsync()
-    {
-        try
-        {
-            var response = await _httpClient.PostAsync(
-                $"{BASE_URL}/uploads",
-                new StringContent("{}", Encoding.UTF8, "application/json"));
-
-            response.EnsureSuccessStatusCode();
-
-            var content = await response.Content.ReadAsStringAsync();
-            var uploadData = JsonSerializer.Deserialize<JsonElement>(content);
-
-            return uploadData.GetProperty("upload_url").GetString();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting upload URL from Replicate");
-            throw;
-        }
-    }
-
-    private async Task<string> UploadFileAsync(string uploadUrl, byte[] fileData, string fileName)
-    {
-        try
-        {
-            // Create a temporary client without auth headers for the upload
-            using var uploadClient = new HttpClient();
-
-            var content = new ByteArrayContent(fileData);
-            content.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-
-            var response = await uploadClient.PutAsync(uploadUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            // Extract the URL from the upload URL
-            var fileUrl = uploadUrl.Split('?')[0];
-            return fileUrl;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading file to Replicate");
+            _logger.LogError(ex, "Error preparing voice samples");
             throw;
         }
     }
 
     /// <summary>
-    /// Creates a speech synthesis prediction with Tortoise TTS
+    /// Gets the latest version of the custom model
+    /// </summary>
+    /// <returns>The model version ID</returns>
+    public async Task<string> GetModelVersionAsync()
+    {
+        // If we already have a version, return it
+        if (!string.IsNullOrEmpty(_modelVersion))
+        {
+            return _modelVersion;
+        }
+
+        try
+        {
+            _logger.LogInformation("Getting latest version for model {Model}", CUSTOM_MODEL);
+            
+            // Get the model versions
+            var response = await _httpClient.GetAsync($"{BASE_URL}/models/{CUSTOM_MODEL}/versions");
+            response.EnsureSuccessStatusCode();
+            
+            var content = await response.Content.ReadAsStringAsync();
+            var responseJson = JsonSerializer.Deserialize<JsonElement>(content);
+            
+            // Get the first (latest) version
+            if (responseJson.TryGetProperty("results", out var resultsElement) && 
+                resultsElement.GetArrayLength() > 0)
+            {
+                var latestVersion = resultsElement[0];
+                if (latestVersion.TryGetProperty("id", out var idElement))
+                {
+                    _modelVersion = idElement.GetString();
+                    _logger.LogInformation("Found model version: {Version}", _modelVersion);
+                    return _modelVersion;
+                }
+            }
+            
+            throw new InvalidOperationException("No versions found for the model. Please push a version to Replicate first.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting model version");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Creates a speech synthesis prediction with StyleTTS2
     /// </summary>
     /// <param name="text">The text to synthesize</param>
-    /// <param name="voiceUrls">List of URLs to voice sample files</param>
-    /// <param name="isTraining">Whether this is a training run (faster but lower quality)</param>
+    /// <param name="voiceSamplesUrl">URL or data URI to the zip file containing voice samples</param>
     /// <returns>The prediction ID</returns>
-    public async Task<string> CreatePredictionAsync(string text, List<string> voiceUrls, bool isTraining = false)
+    public async Task<string> CreatePredictionAsync(string text, string voiceSamplesUrl)
     {
         try
         {
-            // Create the request payload
+            // Get the model version if we don't have it yet
+            if (string.IsNullOrEmpty(_modelVersion))
+            {
+                _modelVersion = await GetModelVersionAsync();
+            }
+            
+            _logger.LogInformation("Creating prediction with model {Model} version {Version}", CUSTOM_MODEL, _modelVersion);
+            
+            // Create the request payload for StyleTTS2
             var payload = new
             {
-                version = MODEL_VERSION,
+                version = _modelVersion,
                 input = new
                 {
                     text = text,
-                    voice_samples = voiceUrls,
-                    preset = isTraining ? "ultra_fast" : "standard", // Use ultra_fast for training, standard for final output
-                    num_autoregressive_samples = isTraining ? 1 : 4,  // Lower for training
-                    seed = 0, // Fixed seed for consistent results
-                    temperature = 0.8,
-                    diffusion_temperature = 1.0,
-                    length_penalty = 1.0,
-                    top_p = 0.8,
-                    cond_free = false,
-                    use_deterministic_seed = true,
-                    k = 1
+                    voice_samples = voiceSamplesUrl,
+                    // Add any other StyleTTS2 parameters here
+                    speed = 1.0,
+                    noise_scale = 0.667,
+                    noise_scale_w = 0.8,
+                    length_scale = 1.0
                 }
             };
 
             var jsonPayload = JsonSerializer.Serialize(payload);
+            _logger.LogDebug("Prediction payload: {Payload}", jsonPayload);
+            
             var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.PostAsync($"{BASE_URL}/predictions", content);
-            response.EnsureSuccessStatusCode();
+            
+            // If the response is not successful, log the response content for debugging
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Error response from Replicate: {ErrorContent}", errorContent);
+                throw new HttpRequestException($"Error creating prediction: {response.StatusCode} - {errorContent}");
+            }
 
             var jsonResponse = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("Prediction response: {Response}", jsonResponse);
+            
             var prediction = JsonSerializer.Deserialize<JsonElement>(jsonResponse);
 
             return prediction.GetProperty("id").GetString();

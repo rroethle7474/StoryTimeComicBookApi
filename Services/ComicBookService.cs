@@ -387,6 +387,7 @@ public class ComicBookService : IComicBookService
                 ComicBookId = cb.ComicBookId.ToString(),
                 Title = cb.Title,
                 Description = cb.Description,
+                AdditionalDetails = cb.AdditionalDetails,
                 IsCompleted = cb.IsCompleted,
                 CreatedAt = cb.CreatedAt,
                 UpdatedAt = cb.UpdatedAt
@@ -483,7 +484,9 @@ public class ComicBookService : IComicBookService
         return new AssetResponse
         {
             AssetId = asset.AssetId.ToString(),
+            FullStoryText = asset.FullStoryText,
             ComicBookId = asset.ComicBookId.ToString(),
+            Status = asset.Status,
             AssetType = asset.AssetType,
             FilePath = asset.FilePath,
             PageNumber = asset.PageNumber,
@@ -613,7 +616,7 @@ public class ComicBookService : IComicBookService
             // Wait for all image processing tasks to complete
             var processedScenes = await Task.WhenAll(imageProcessingTasks);
 
-            // Save updated scenes with styled image paths
+            //// Save updated scenes with styled image paths
             foreach (var scene in processedScenes)
             {
                 _context.Scenes.Update(scene);
