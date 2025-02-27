@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <Folder Include="AudioStorage\" />
+    <Folder Include="wwwroot\pdfs\" />
   </ItemGroup>
 
 </Project>

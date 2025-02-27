@@ -49,6 +49,7 @@ public class VoiceMimickingService : IVoiceMimickingService
             var voiceModel = new VoiceModel
             {
                 VoiceModelName = request.VoiceModelName,
+
                 VoiceModelDescription = request.VoiceModelDescription,
                 Status = "pending",
                 TrainingDate = DateTime.UtcNow
