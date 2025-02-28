@@ -56,9 +56,22 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             _logger.LogInformation("Starting voice model training for model {ModelId}", modelId);
 
             if (replicateModelId == null)
-                return;
+            {
+                throw new InvalidOperationException("No Replicate model ID provided for training");
+            }
 
             string modelVersion = null;
+            ReplicateModel replicateModel = null;
+
+            Guid replicateModelGuid;
+            if (Guid.TryParse(replicateModelId, out replicateModelGuid))
+            {
+                replicateModel = await _context.ReplicateModels.FindAsync(replicateModelGuid);
+            }
+
+            if (replicateModel == null)
+                return;
+
 
             // Create a temp directory for training data
             string trainingDataFolder = Path.Combine(Path.GetTempPath(), $"training_data_{modelId}");
@@ -66,21 +79,17 @@ public class VoiceModelTrainer : IVoiceModelTrainer
 
             try
             {
-                // Retrieve the voice model with its audio snippets and steps from the database
-                var voiceModel = await _context.VoiceModels
-                    .Include(vm => vm.AudioSnippets)
-                        .ThenInclude(vmas => vmas.AudioSnippet)
-                    .Include(vm => vm.AudioSnippets)
-                        .ThenInclude(vmas => vmas.Step)
-                    .FirstOrDefaultAsync(vm => vm.VoiceModelId == modelId);
+                // Get the audio snippets from the provided audio file paths
+                var audioSnippets = await _context.VoiceModelAudioSnippets
+                    .Where(v => v.VoiceModelId == modelId)
+                    .Include(v => v.AudioSnippet)
+                    .Include(v => v.Step)
+                    .ToListAsync();
 
-                if (voiceModel == null)
+                if (!audioSnippets.Any())
                 {
-                    throw new InvalidOperationException($"Voice model with ID {modelId} not found");
+                    throw new InvalidOperationException($"No audio snippets found for voice model with ID {modelId}");
                 }
-
-                // Get the audio snippets before preparing the training data
-                var audioSnippets = voiceModel.AudioSnippets.ToList();
 
                 // Prepare the training data in the required format using the voice model audio snippets
                 await PrepareTrainingDataAsync(audioSnippets, trainingDataFolder);
@@ -91,16 +100,18 @@ public class VoiceModelTrainer : IVoiceModelTrainer
 
                 // Train the model using the prepared zip file with the proper training structure
                 modelVersion = await _replicateClient.TrainCustomModelAsync(
-                    voiceModelName,
+                    replicateModel.ModelName,
                     audioFilePaths,  // Keep this as a fallback
                     zipPath);        // Pass the prepared zip file path
 
                 // Save the model version
-                var replicateModel = await _context.ReplicateModels.FindAsync(modelId);
-                if(replicateModel != null)
+                if (!string.IsNullOrEmpty(modelVersion))
                 {
-                    replicateModel.ReplicateModelIdentifier = modelVersion;
-                    await _context.SaveChangesAsync();
+                    if (replicateModel != null)
+                    {
+                        replicateModel.ReplicateModelIdentifier = modelVersion;
+                        await _context.SaveChangesAsync();
+                    }
                 }
 
                 _logger.LogInformation("Model training completed. Model version: {Version}", modelVersion);
@@ -108,10 +119,17 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             finally
             {
                 // Clean up the temporary folder
-                if (Directory.Exists(trainingDataFolder))
-                {
-                    Directory.Delete(trainingDataFolder, true);
-                }
+                //if (Directory.Exists(trainingDataFolder))
+                //{
+                //    Directory.Delete(trainingDataFolder, true);
+                //}
+
+                // Clean up the ZIP file
+                string zipPath = Path.Combine(Path.GetTempPath(), $"training_data_{modelId}.zip");
+                //if (File.Exists(zipPath))
+                //{
+                //    File.Delete(zipPath);
+                //}
             }
         }
         catch (Exception ex)

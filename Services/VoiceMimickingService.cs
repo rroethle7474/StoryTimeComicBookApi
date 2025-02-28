@@ -459,7 +459,7 @@ public class VoiceMimickingService : IVoiceMimickingService
         {
             var id = Guid.Parse(voiceModelId);
 
-            // retrieve the ReplicateModel and VoiceModelAudioSnippets
+            // Retrieve the ReplicateModel and VoiceModelAudioSnippets
             var voiceModel = await _context.VoiceModels
                 .Include(v => v.AudioSnippets)
                 .ThenInclude(a => a.AudioSnippet)
@@ -477,70 +477,55 @@ public class VoiceMimickingService : IVoiceMimickingService
 
             // Update voice model status
             voiceModel.Status = "training";
-
             await _context.SaveChangesAsync();
 
-            // Get the necessary data before starting the background task
+            // Get the necessary data
             var audioFilePaths = voiceModel.AudioSnippets
                 .Select(a => a.AudioSnippet.AudioFilePath)
                 .ToList();
-            
-            var modelIdCopy = voiceModel.VoiceModelId;
-            var modelNameCopy = voiceModel.VoiceModelName;
-            var replicateModelIdCopy = voiceModel.ReplicateModelId?.ToString();
+
             var hasModelForTraining = voiceModel.ReplicateModelId.HasValue;
 
-            // Start training process asynchronously
-            _ = Task.Run(async () =>
+            // Run the training process directly
+            if (hasModelForTraining)
             {
                 try
                 {
-                    if(hasModelForTraining)
-                        await _modelTrainer.TrainModelAsync(audioFilePaths, modelIdCopy, modelNameCopy, replicateModelIdCopy);
+                    await _modelTrainer.TrainModelAsync(
+                        audioFilePaths,
+                        voiceModel.VoiceModelId,
+                        voiceModel.VoiceModelName,
+                        voiceModel.ReplicateModelId?.ToString());
 
-                    // Update status after training - use a new context instance from DI
-                    using (var scope = _serviceScopeFactory.CreateScope())
-                    {
-                        var dbContext = scope.ServiceProvider.GetRequiredService<VoiceMimicDataContext>();
-                        var modelToUpdate = await dbContext.VoiceModels.FindAsync(modelIdCopy);
-                        if (modelToUpdate != null)
-                        {
-                            if (hasModelForTraining)
-                            {
-                                modelToUpdate.Status = "completed";
-                                modelToUpdate.IsCompleted = true;
-                            }
-                            else
-                            {
-                                modelToUpdate.Status = "failed";
-                                modelToUpdate.IsCompleted = false;
-                            }
-
-                            await dbContext.SaveChangesAsync();
-                        }
-                    }
+                    // Update status after successful training
+                    voiceModel.Status = "completed";
+                    voiceModel.IsCompleted = true;
+                    await _context.SaveChangesAsync();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during model training for voice model {VoiceModelId}", voiceModelId);
-                    
-                    // Update status to failed - use a new context instance from DI
-                    using (var scope = _serviceScopeFactory.CreateScope())
-                    {
-                        var dbContext = scope.ServiceProvider.GetRequiredService<VoiceMimicDataContext>();
-                        var modelToUpdate = await dbContext.VoiceModels.FindAsync(modelIdCopy);
-                        if (modelToUpdate != null)
-                        {
-                            modelToUpdate.Status = "failed";
-                            await dbContext.SaveChangesAsync();
-                        }
-                    }
+
+                    // Update status to failed
+                    voiceModel.Status = "failed";
+                    await _context.SaveChangesAsync();
+
+                    // Rethrow the exception to be handled by the controller
+                    throw;
                 }
-            });
+            }
+            else
+            {
+                voiceModel.Status = "failed";
+                voiceModel.IsCompleted = false;
+                await _context.SaveChangesAsync();
+
+                throw new InvalidOperationException("No Replicate model selected for training");
+            }
 
             return new TrainModelResponse
             {
-                Message = "Model training initiated successfully."
+                Message = "Model training completed successfully."
             };
         }
         catch (Exception ex)

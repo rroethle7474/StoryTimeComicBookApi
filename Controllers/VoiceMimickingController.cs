@@ -293,10 +293,10 @@ public class VoiceMimickingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error initiating training for voice model {VoiceModelId}", voiceModelId);
+            _logger.LogError(ex, "Error training voice model {VoiceModelId}", voiceModelId);
             return StatusCode(500, ApiResponse<TrainModelResponse>.Failure(
-                "An error occurred while initiating model training",
-                "TRAINING_INITIATION_ERROR",
+                "An error occurred during model training",
+                "TRAINING_ERROR",
                 ex.Message));
         }
     }
