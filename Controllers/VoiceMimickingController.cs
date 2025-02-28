@@ -43,6 +43,16 @@ public class VoiceMimickingController : ControllerBase
     {
         try
         {
+            if (request.AudioFile == null || request.AudioFile.Length == 0)
+            {
+                return BadRequest(ApiResponse<AudioSnippetUploadResponse>.Failure(
+                    "No audio file provided",
+                    "AUDIO_FILE_REQUIRED"));
+            }
+
+            // Log the MIME type for debugging
+            _logger.LogInformation("Received audio file with MIME type: {MimeType}", request.AudioFile.ContentType);
+
             var response = await _voiceMimickingService.UploadAudioSnippetAsync(request);
             return Ok(ApiResponse<AudioSnippetUploadResponse>.Success(response));
         }

@@ -6,6 +6,6 @@ namespace StoryTimeComicBookApi.Services.Interfaces;
 public interface IVoiceModelTrainer
 {
     StartRecordingResponse StartRecordingSessionAsync(StartRecordingRequest request);
-    Task<string> TrainModelAsync(List<string> audioFilePaths, Guid modelId, string modelName);
+    Task TrainModelAsync(List<string> audioFilePaths, Guid modelId, string modelName, string replicateModelId = null);
     Task<string> SynthesizeSpeechAsync(string text, Guid id);
 } 

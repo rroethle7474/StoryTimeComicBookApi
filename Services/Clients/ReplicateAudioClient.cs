@@ -456,9 +456,7 @@ public class ReplicateAudioClient
         try
         {
             _logger.LogInformation("Training custom StyleTTS2 model: {ModelName}", modelName);
-            
-            // Sanitize the model name for use in the destination
-            string sanitizedModelName = "voice-model-01";
+
 
             // follow this format for how to structure the zip file for training
             //https://replicate.com/adirik/styletts2/train
@@ -466,7 +464,7 @@ public class ReplicateAudioClient
             string username = _configuration["AI:HuggingFace:Username"] ?? "rroethle7474";
             
             // Create the destination in the format "username/model-name"
-            string destination = $"{username}/{sanitizedModelName}";
+            string destination = $"{username}/{modelName}";
             
             _logger.LogInformation("Using destination model: {Destination}", destination);
             
@@ -574,9 +572,6 @@ public class ReplicateAudioClient
                     
                     // Update the model version and custom model name in memory
                     _modelVersion = modelVersion;
-                    
-                    _logger.LogInformation("Custom model training completed. Model: {Model}, Version: {Version}", 
-                        destination, modelVersion);
                     
                     return modelVersion;
                 }

@@ -10,4 +10,7 @@ public class AudioSnippetUploadRequest
     [FromForm(Name = "stepId")]
     public string? StepId { get; set; }
 
+    [FromForm(Name = "targetSampleRate")]
+    public string? TargetSampleRate { get; set; } = "24000";
+
 } 

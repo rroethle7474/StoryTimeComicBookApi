@@ -4,5 +4,5 @@ namespace StoryTimeComicBookApi.Services.Interfaces;
 
 public interface IAudioStorageService
 {
-    Task<string> SaveAudioFileAsync(IFormFile audioFile);
+    Task<string> SaveAudioFileAsync(IFormFile audioFile, string targetSampleRate = null);
 } 

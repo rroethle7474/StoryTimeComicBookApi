@@ -3,6 +3,7 @@ using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Clients;
 using StoryTimeComicBookApi.Services.Interfaces;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -46,112 +47,53 @@ public class VoiceModelTrainer : IVoiceModelTrainer
         };
     }
 
-    public async Task<string> TrainModelAsync(List<string> audioFilePaths, Guid modelId, string voiceModelName)
+    public async Task TrainModelAsync(List<string> audioFilePaths, Guid modelId, string voiceModelName, string replicateModelId = null)
     {
         try
         {
             _logger.LogInformation("Starting voice model training for model {ModelId}", modelId);
 
-            // Check if we should perform actual model training or just use reference-based generation
-            // remove this check as we will always use the perform training
-            // need to get steps as well for this to match them up for creating zip file.
-            bool performModelTraining = _configuration.GetValue<bool>("VoiceModel:PerformTraining", false);
+            if (replicateModelId == null)
+                return;
+
             string modelVersion = null;
-            List<string> voiceSampleUrls = null;
-            
-            // If we're not doing actual training, we need to upload individual files for reference-based generation
-            if (!performModelTraining)
+
+            // Create a temp directory for training data
+            string trainingDataFolder = Path.Combine(Path.GetTempPath(), $"training_data_{modelId}");
+            Directory.CreateDirectory(trainingDataFolder);
+
+            try
             {
-                // With StyleTTS2, we don't need to "train" a model in the traditional sense
-                // Instead, we prepare the voice samples by uploading them to Replicate
-                
-                // Upload each audio file and get their URLs
-                voiceSampleUrls = await _replicateClient.PrepareVoiceSamplesAsync(audioFilePaths);
-                
-                _logger.LogInformation("Voice samples prepared and uploaded: {Count} files", voiceSampleUrls.Count);
-                _logger.LogInformation("Skipping actual model training, using reference-based generation");
-            }
-            else
-            {
-                _logger.LogInformation("Starting actual model training for {ModelName}", voiceModelName);
-                
-                // Create a unique model name for this training session
-                // This allows multiple models to be trained without conflicts
-                string customModelName = $"voice-model-{modelId.ToString().Substring(0, 8)}";
-                
-                // Update the configuration with the custom model name for this session
-                // This ensures that the ReplicateAudioClient will use this model for predictions
-                string configKey = "AI:Replicate:CustomModelName";
-                if (_configuration is IConfigurationRoot configRoot)
-                {
-                    // Create a memory configuration provider to override the setting
-                    var memoryConfig = new Dictionary<string, string>
-                    {
-                        { configKey, customModelName }
-                    };
-                    
-                    // Add the memory provider to the configuration
-                    configRoot.GetSection("AI:Replicate")["CustomModelName"] = customModelName;
-                    
-                    _logger.LogInformation("Set custom model name for this session: {ModelName}", customModelName);
-                }
-                
-                // For training, we'll use the ZIP approach since the uploads URL might not exist
-                // We'll still need URLs for testing and future reference-based generation
-                //voiceSampleUrls = await _replicateClient.PrepareVoiceSamplesAsync(audioFilePaths);
-                
-                //_logger.LogInformation("Voice samples prepared and uploaded: {Count} files", voiceSampleUrls.Count);
-                
-                // Train a custom model using the ZIP approach with original audio file paths
+                // Prepare the training data in the required format
+                await PrepareTrainingDataAsync(audioFilePaths, trainingDataFolder);
+
+                // Create a ZIP file of the training data
+                string zipPath = Path.Combine(Path.GetTempPath(), $"training_data_{modelId}.zip");
+                ZipFile.CreateFromDirectory(trainingDataFolder, zipPath);
+
+                // Train the model using the zip file
                 modelVersion = await _replicateClient.TrainCustomModelAsync(
-                    customModelName,
-                    audioFilePaths);  // Pass the original file paths for ZIP creation
-                
+                    voiceModelName,
+                    new List<string> { zipPath }); // Pass the zip file path
+
+                // Save the model version
+                var replicateModel = await _context.ReplicateModels.FindAsync(modelId);
+                if(replicateModel != null)
+                {
+                    replicateModel.ReplicateModelIdentifier = modelVersion;
+                    await _context.SaveChangesAsync();
+                }
+
                 _logger.LogInformation("Model training completed. Model version: {Version}", modelVersion);
             }
-
-            // Test the voice model with a simple sample text
-            var testText = "This is a test of the voice model for " + SanitizeModelName(voiceModelName);
-            
-            // Create a prediction with the voice samples
-            //var predictionId = await _replicateClient.CreatePredictionAsync(testText, voiceSampleUrls);
-            
-            // Wait for the test prediction to complete
-            //var audioData = await _replicateClient.GetPredictionResultAsync(predictionId);
-            
-            // Save the test audio
-            string testOutputFileName = $"test_{modelId}.wav";
-            string testOutputDirectory = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "audio", "tests");
-            
-            if (!Directory.Exists(testOutputDirectory))
+            finally
             {
-                Directory.CreateDirectory(testOutputDirectory);
+                // Clean up the temporary folder
+                if (Directory.Exists(trainingDataFolder))
+                {
+                    Directory.Delete(trainingDataFolder, true);
+                }
             }
-            
-            string testOutputPath = Path.Combine(testOutputDirectory, testOutputFileName);
-            //await File.WriteAllBytesAsync(testOutputPath, audioData);
-
-            // Store model information in local storage
-            var modelConfigPath = Path.Combine(_modelStoragePath, $"model_{modelId}.json");
-            //var modelConfig = new
-            //{
-            //    ModelId = modelId.ToString(),
-            //    VoiceSampleUrls = voiceSampleUrls,
-            //    CreatedAt = DateTime.UtcNow,
-            //    ModelName = voiceModelName,
-            //    TestAudioPath = $"/audio/tests/{testOutputFileName}",
-            //    IsTrainedModel = performModelTraining,
-            //    ModelVersion = modelVersion,
-            //    CustomModelName = performModelTraining ? $"voice-model-{modelId.ToString().Substring(0, 8)}" : null
-            //};
-
-            //await File.WriteAllTextAsync(
-            //    modelConfigPath,
-            //    JsonSerializer.Serialize(modelConfig, new JsonSerializerOptions { WriteIndented = true }));
-
-            //_logger.LogInformation("Voice model setup completed successfully. Model config saved at: {ModelPath}", modelConfigPath);
-
-            return modelConfigPath;
         }
         catch (Exception ex)
         {
@@ -332,5 +274,68 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             return "model";
 
         return sanitized.ToLowerInvariant();
+    }
+
+    private async Task PrepareTrainingDataAsync(List<string> audioFilePaths, string outputFolder)
+    {
+        try
+        {
+            // Create 'wavs' subdirectory as required by StyleTTS2
+            string wavsFolder = Path.Combine(outputFolder, "wavs");
+            Directory.CreateDirectory(wavsFolder);
+
+            // Create training and validation data files
+            using (var trainWriter = new StreamWriter(Path.Combine(outputFolder, "train_data.txt")))
+            using (var valWriter = new StreamWriter(Path.Combine(outputFolder, "validation_data.txt")))
+            {
+                int index = 0;
+                foreach (var audioPath in audioFilePaths)
+                {
+                    // Get the file name without path
+                    string fileName = Path.GetFileName(audioPath);
+
+                    // Full path to the source audio file (relative to wwwroot)
+                    string sourcePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", audioPath.TrimStart('/'));
+
+                    // Validate that the file exists and is a WAV file
+                    if (!File.Exists(sourcePath))
+                    {
+                        _logger.LogWarning("Audio file not found: {FilePath}", sourcePath);
+                        continue;
+                    }
+
+                    // Copy to wavs folder with a sequential name
+                    string destFileName = $"audio_{index:D4}.wav";
+                    string destPath = Path.Combine(wavsFolder, destFileName);
+                    File.Copy(sourcePath, destPath, true);
+
+                    // Add to training or validation data (80/20 split)
+                    string entry = $"{destFileName}|This is a voice sample for training.";
+                    if (index % 5 == 0) // Every 5th file goes to validation
+                    {
+                        await valWriter.WriteLineAsync(entry);
+                    }
+                    else
+                    {
+                        await trainWriter.WriteLineAsync(entry);
+                    }
+
+                    index++;
+                }
+            }
+
+            // Create empty OOD_data.txt file as required by some StyleTTS2 configurations
+            using (var oodWriter = new StreamWriter(Path.Combine(outputFolder, "OOD_data.txt")))
+            {
+                // Leave it empty for now
+            }
+
+            _logger.LogInformation("Training data prepared successfully in {OutputFolder}", outputFolder);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error preparing training data");
+            throw;
+        }
     }
 }

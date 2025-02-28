@@ -168,7 +168,7 @@ public class VoiceMimickingService : IVoiceMimickingService
     {
         try
         {
-            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile);
+            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile, request.TargetSampleRate);
 
             var audioSnippet = new AudioSnippet
             {
@@ -182,7 +182,8 @@ public class VoiceMimickingService : IVoiceMimickingService
 
             return new AudioSnippetUploadResponse
             {
-                Message = "Audio snippet uploaded successfully."
+                Message = "Audio snippet uploaded successfully.",
+                AudioSnippetId = audioSnippet.AudioSnippetId.ToString()
             };
         }
         catch (Exception ex)
@@ -222,7 +223,7 @@ public class VoiceMimickingService : IVoiceMimickingService
     //            try
     //            {
     //                var huggingfaceModelName = await _modelTrainer.TrainModelAsync(audioSnippets, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
-                    
+
     //                // Update model status after successful training
     //                voiceModel.Status = "completed";
     //                voiceModel.IsCompleted = true;
@@ -331,13 +332,13 @@ public class VoiceMimickingService : IVoiceMimickingService
     }
 
     public async Task<AudioSnippetUploadResponse> AddAudioSnippetToModelAsync(
-    string voiceModelId,
-    AudioSnippetUploadRequest request)
+        string voiceModelId,
+        AudioSnippetUploadRequest request)
     {
         try
         {
             // Save the audio file
-            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile);
+            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile, request.TargetSampleRate);
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -484,15 +485,25 @@ public class VoiceMimickingService : IVoiceMimickingService
                         .Select(a => a.AudioSnippet.AudioFilePath)
                         .ToList();
 
-                    // change name of HugingFaceModel and also pass in the models in a more efficient way.
-                    var huggingFaceModelName = await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
+                    var hasModelForTraining = voiceModel.ReplicateModelId.HasValue;
+
+                    if(hasModelForTraining)
+                        await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId, voiceModel.VoiceModelName, voiceModel.ReplicateModelId.ToString());
 
                     // Update status after training
-                    voiceModel.Status = "completed";
-                    voiceModel.HuggingFaceModelName = huggingFaceModelName;
-                    voiceModel.IsCompleted = true;
+                    if (hasModelForTraining)
+                    {
+                        voiceModel.Status = "completed";
+                        voiceModel.IsCompleted = true;
+                    }
+                    else
+                    {
+                        voiceModel.Status = "failed";
+                        voiceModel.IsCompleted = false;
+                    }
 
                     await _context.SaveChangesAsync();
+
                 }
                 catch (Exception ex)
                 {
@@ -615,9 +626,12 @@ public class VoiceMimickingService : IVoiceMimickingService
                 if (existingAudioSnippet != null)
                 {
                     // Delete physical file
-                    if (File.Exists(existingAudioSnippet.AudioFilePath))
+                    var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                    var fullPath = Path.Combine(webRootPath, existingAudioSnippet.AudioFilePath.TrimStart('/'));
+
+                    if (File.Exists(fullPath))
                     {
-                        File.Delete(existingAudioSnippet.AudioFilePath);
+                        File.Delete(fullPath);
                     }
 
                     _context.AudioSnippets.Remove(existingAudioSnippet);
@@ -626,7 +640,7 @@ public class VoiceMimickingService : IVoiceMimickingService
             }
 
             // Save new audio file
-            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile);
+            var filePath = await _audioStorage.SaveAudioFileAsync(request.AudioFile, request.TargetSampleRate);
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -658,7 +672,8 @@ public class VoiceMimickingService : IVoiceMimickingService
 
                 return new AudioSnippetUploadResponse
                 {
-                    Message = "Audio snippet uploaded and associated with step successfully."
+                    Message = "Audio snippet uploaded and associated with step successfully.",
+                    AudioSnippetId = audioSnippet.AudioSnippetId.ToString()
                 };
             }
             catch
