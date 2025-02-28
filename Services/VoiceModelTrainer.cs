@@ -6,6 +6,8 @@ using StoryTimeComicBookApi.Services.Interfaces;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using StoryTimeComicBookApi.Data.Entities;
+using Microsoft.EntityFrameworkCore;
 
 public class VoiceModelTrainer : IVoiceModelTrainer
 {
@@ -64,17 +66,34 @@ public class VoiceModelTrainer : IVoiceModelTrainer
 
             try
             {
-                // Prepare the training data in the required format
-                await PrepareTrainingDataAsync(audioFilePaths, trainingDataFolder);
+                // Retrieve the voice model with its audio snippets and steps from the database
+                var voiceModel = await _context.VoiceModels
+                    .Include(vm => vm.AudioSnippets)
+                        .ThenInclude(vmas => vmas.AudioSnippet)
+                    .Include(vm => vm.AudioSnippets)
+                        .ThenInclude(vmas => vmas.Step)
+                    .FirstOrDefaultAsync(vm => vm.VoiceModelId == modelId);
+
+                if (voiceModel == null)
+                {
+                    throw new InvalidOperationException($"Voice model with ID {modelId} not found");
+                }
+
+                // Get the audio snippets before preparing the training data
+                var audioSnippets = voiceModel.AudioSnippets.ToList();
+
+                // Prepare the training data in the required format using the voice model audio snippets
+                await PrepareTrainingDataAsync(audioSnippets, trainingDataFolder);
 
                 // Create a ZIP file of the training data
                 string zipPath = Path.Combine(Path.GetTempPath(), $"training_data_{modelId}.zip");
                 ZipFile.CreateFromDirectory(trainingDataFolder, zipPath);
 
-                // Train the model using the zip file
+                // Train the model using the prepared zip file with the proper training structure
                 modelVersion = await _replicateClient.TrainCustomModelAsync(
                     voiceModelName,
-                    new List<string> { zipPath }); // Pass the zip file path
+                    audioFilePaths,  // Keep this as a fallback
+                    zipPath);        // Pass the prepared zip file path
 
                 // Save the model version
                 var replicateModel = await _context.ReplicateModels.FindAsync(modelId);
@@ -276,7 +295,7 @@ public class VoiceModelTrainer : IVoiceModelTrainer
         return sanitized.ToLowerInvariant();
     }
 
-    private async Task PrepareTrainingDataAsync(List<string> audioFilePaths, string outputFolder)
+    private async Task PrepareTrainingDataAsync(List<VoiceModelAudioSnippet> audioSnippets, string outputFolder)
     {
         try
         {
@@ -289,13 +308,13 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             using (var valWriter = new StreamWriter(Path.Combine(outputFolder, "validation_data.txt")))
             {
                 int index = 0;
-                foreach (var audioPath in audioFilePaths)
+                foreach (var audioSnippet in audioSnippets)
                 {
                     // Get the file name without path
-                    string fileName = Path.GetFileName(audioPath);
+                    string fileName = Path.GetFileName(audioSnippet.AudioSnippet.AudioFilePath);
 
                     // Full path to the source audio file (relative to wwwroot)
-                    string sourcePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", audioPath.TrimStart('/'));
+                    string sourcePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", audioSnippet.AudioSnippet.AudioFilePath.TrimStart('/'));
 
                     // Validate that the file exists and is a WAV file
                     if (!File.Exists(sourcePath))
@@ -309,9 +328,16 @@ public class VoiceModelTrainer : IVoiceModelTrainer
                     string destPath = Path.Combine(wavsFolder, destFileName);
                     File.Copy(sourcePath, destPath, true);
 
+                    // Get the transcript text from the step if available, otherwise use a default
+                    string transcriptText = "This is a voice sample for training.";
+                    if (audioSnippet.Step != null && !string.IsNullOrEmpty(audioSnippet.Step.TranscriptText))
+                    {
+                        transcriptText = audioSnippet.Step.TranscriptText;
+                    }
+
                     // Add to training or validation data (80/20 split)
-                    string entry = $"{destFileName}|This is a voice sample for training.";
-                    if (index % 5 == 0) // Every 5th file goes to validation
+                    string entry = $"{destFileName}|{transcriptText}";
+                    if (index % 2 == 0) // Every 5th file goes to validation
                     {
                         await valWriter.WriteLineAsync(entry);
                     }

@@ -445,18 +445,51 @@ public class ReplicateAudioClient
     }
 
     /// <summary>
+    /// Prepares a properly structured ZIP file for StyleTTS2 training
+    /// </summary>
+    /// <param name="zipFilePath">Path to the ZIP file containing the properly structured training data</param>
+    /// <returns>Data URI of the ZIP file</returns>
+    public async Task<string> PrepareTrainingZipAsync(string zipFilePath)
+    {
+        try
+        {
+            _logger.LogInformation("Preparing training ZIP file for StyleTTS2: {FilePath}", zipFilePath);
+            
+            if (!File.Exists(zipFilePath))
+            {
+                throw new FileNotFoundException($"ZIP file not found: {zipFilePath}");
+            }
+            
+            // Read the zip file
+            byte[] zipData = await File.ReadAllBytesAsync(zipFilePath);
+            
+            // Convert the zip file to a data URI
+            string base64Data = Convert.ToBase64String(zipData);
+            string dataUri = $"data:application/zip;base64,{base64Data}";
+            
+            _logger.LogInformation("Created data URI for training ZIP (size: {Size} bytes)", zipData.Length);
+            
+            return dataUri;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error preparing training ZIP file");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Trains a custom StyleTTS2 model on Replicate using the provided voice samples
     /// </summary>
-    /// <param name="voiceSampleUrls">List of URLs to the voice sample files</param>
     /// <param name="modelName">Name for the custom model</param>
     /// <param name="audioFilePaths">Original audio file paths (used for ZIP creation if needed)</param>
+    /// <param name="preparedZipPath">Optional path to a prepared ZIP file with the proper training structure</param>
     /// <returns>The trained model version ID</returns>
-    public async Task<string> TrainCustomModelAsync(string modelName, List<string> audioFilePaths = null)
+    public async Task<string> TrainCustomModelAsync(string modelName, List<string> audioFilePaths = null, string preparedZipPath = null)
     {
         try
         {
             _logger.LogInformation("Training custom StyleTTS2 model: {ModelName}", modelName);
-
 
             // follow this format for how to structure the zip file for training
             //https://replicate.com/adirik/styletts2/train
@@ -471,12 +504,23 @@ public class ReplicateAudioClient
             // Determine if we should use ZIP file approach or individual URLs
             object voiceSamplesInput = null;
             
-            if (audioFilePaths != null && audioFilePaths.Count > 0)
+            if (preparedZipPath != null && File.Exists(preparedZipPath))
             {
-                // Use ZIP file approach for training
-                _logger.LogInformation("Using ZIP file approach for training");
+                // Use the prepared ZIP file with the proper training structure
+                _logger.LogInformation("Using prepared ZIP file for training: {ZipPath}", preparedZipPath);
+                string zipDataUri = await PrepareTrainingZipAsync(preparedZipPath);
+                voiceSamplesInput = zipDataUri;
+            }
+            else if (audioFilePaths != null && audioFilePaths.Count > 0)
+            {
+                // Use ZIP file approach for training with simple audio files
+                _logger.LogInformation("Using simple ZIP file approach for training with {Count} audio files", audioFilePaths.Count);
                 string zipDataUri = await PrepareVoiceSamplesAsZipAsync(audioFilePaths);
                 voiceSamplesInput = zipDataUri;
+            }
+            else
+            {
+                throw new ArgumentException("Either preparedZipPath or audioFilePaths must be provided");
             }
             
             // Create the request payload for training

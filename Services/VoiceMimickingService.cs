@@ -5,6 +5,7 @@ using StoryTimeComicBookApi.Models.Requests;
 using StoryTimeComicBookApi.Models.Responses;
 using StoryTimeComicBookApi.Services.Clients;
 using StoryTimeComicBookApi.Services.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace StoryTimeComicBookApi.Services;
 
@@ -16,6 +17,7 @@ public class VoiceMimickingService : IVoiceMimickingService
     private readonly IAudioStorageService _audioStorage;
     private readonly IVoiceModelTrainer _modelTrainer;
     private readonly HuggingFaceClient _huggingFaceClient;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public VoiceMimickingService(
         VoiceMimicDataContext context,
@@ -23,7 +25,8 @@ public class VoiceMimickingService : IVoiceMimickingService
         ILogger<VoiceMimickingService> logger,
         IAudioStorageService audioStorage,
         IVoiceModelTrainer modelTrainer,
-        HuggingFaceClient huggingFaceClient)
+        HuggingFaceClient huggingFaceClient,
+        IServiceScopeFactory serviceScopeFactory)
     {
         _context = context;
         _configuration = configuration;
@@ -31,6 +34,7 @@ public class VoiceMimickingService : IVoiceMimickingService
         _audioStorage = audioStorage;
         _modelTrainer = modelTrainer;
         _huggingFaceClient = huggingFaceClient;
+        _serviceScopeFactory = serviceScopeFactory;
     }
 
     public async Task<CreateVoiceModelResponse> CreateVoiceModelAsync(CreateVoiceModelRequest request)
@@ -476,40 +480,61 @@ public class VoiceMimickingService : IVoiceMimickingService
 
             await _context.SaveChangesAsync();
 
+            // Get the necessary data before starting the background task
+            var audioFilePaths = voiceModel.AudioSnippets
+                .Select(a => a.AudioSnippet.AudioFilePath)
+                .ToList();
+            
+            var modelIdCopy = voiceModel.VoiceModelId;
+            var modelNameCopy = voiceModel.VoiceModelName;
+            var replicateModelIdCopy = voiceModel.ReplicateModelId?.ToString();
+            var hasModelForTraining = voiceModel.ReplicateModelId.HasValue;
+
             // Start training process asynchronously
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var audioFilePaths = voiceModel.AudioSnippets
-                        .Select(a => a.AudioSnippet.AudioFilePath)
-                        .ToList();
-
-                    var hasModelForTraining = voiceModel.ReplicateModelId.HasValue;
-
                     if(hasModelForTraining)
-                        await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId, voiceModel.VoiceModelName, voiceModel.ReplicateModelId.ToString());
+                        await _modelTrainer.TrainModelAsync(audioFilePaths, modelIdCopy, modelNameCopy, replicateModelIdCopy);
 
-                    // Update status after training
-                    if (hasModelForTraining)
+                    // Update status after training - use a new context instance from DI
+                    using (var scope = _serviceScopeFactory.CreateScope())
                     {
-                        voiceModel.Status = "completed";
-                        voiceModel.IsCompleted = true;
-                    }
-                    else
-                    {
-                        voiceModel.Status = "failed";
-                        voiceModel.IsCompleted = false;
-                    }
+                        var dbContext = scope.ServiceProvider.GetRequiredService<VoiceMimicDataContext>();
+                        var modelToUpdate = await dbContext.VoiceModels.FindAsync(modelIdCopy);
+                        if (modelToUpdate != null)
+                        {
+                            if (hasModelForTraining)
+                            {
+                                modelToUpdate.Status = "completed";
+                                modelToUpdate.IsCompleted = true;
+                            }
+                            else
+                            {
+                                modelToUpdate.Status = "failed";
+                                modelToUpdate.IsCompleted = false;
+                            }
 
-                    await _context.SaveChangesAsync();
-
+                            await dbContext.SaveChangesAsync();
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during model training for voice model {VoiceModelId}", voiceModelId);
-                    voiceModel.Status = "failed";
-                    await _context.SaveChangesAsync();
+                    
+                    // Update status to failed - use a new context instance from DI
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var dbContext = scope.ServiceProvider.GetRequiredService<VoiceMimicDataContext>();
+                        var modelToUpdate = await dbContext.VoiceModels.FindAsync(modelIdCopy);
+                        if (modelToUpdate != null)
+                        {
+                            modelToUpdate.Status = "failed";
+                            await dbContext.SaveChangesAsync();
+                        }
+                    }
                 }
             });
 
