@@ -11,7 +11,7 @@ public interface IVoiceMimickingService
     Task<IEnumerable<ReplicateModelListResponse>> GetAvailableReplicateModels(string existingReplicateId = null);
     Task<SynthesizeSpeechResponse> SynthesizeSpeechAsync(SynthesizeSpeechRequest request);
     Task<AudioSnippetUploadResponse> UploadAudioSnippetAsync(AudioSnippetUploadRequest request);
-    Task<TrainModelResponse> TrainModelAsync(TrainModelRequest request);
+    //Task<TrainModelResponse> TrainModelAsync(TrainModelRequest request);
     StartRecordingResponse StartRecording();
     
     // New methods

@@ -56,23 +56,23 @@ public class VoiceMimickingController : ControllerBase
         }
     }
 
-    [HttpPost("train-model")]
-    public async Task<ActionResult<ApiResponse<TrainModelResponse>>> TrainModel([FromBody] TrainModelRequest request)
-    {
-        try
-        {
-            var response = await _voiceMimickingService.TrainModelAsync(request);
-            return Ok(ApiResponse<TrainModelResponse>.Success(response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error training voice model");
-            return StatusCode(500, ApiResponse<TrainModelResponse>.Failure(
-                "An error occurred while training the voice model",
-                "VOICE_TRAIN_ERROR",
-                ex.Message));
-        }
-    }
+    //[HttpPost("train-model")]
+    //public async Task<ActionResult<ApiResponse<TrainModelResponse>>> TrainModel([FromBody] TrainModelRequest request)
+    //{
+    //    try
+    //    {
+    //        var response = await _voiceMimickingService.TrainModelAsync(request);
+    //        return Ok(ApiResponse<TrainModelResponse>.Success(response));
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _logger.LogError(ex, "Error training voice model");
+    //        return StatusCode(500, ApiResponse<TrainModelResponse>.Failure(
+    //            "An error occurred while training the voice model",
+    //            "VOICE_TRAIN_ERROR",
+    //            ex.Message));
+    //    }
+    //}
 
     [HttpPost("synthesize-speech")]
     public async Task<ActionResult<ApiResponse<SynthesizeSpeechResponse>>> SynthesizeSpeech([FromBody] SynthesizeSpeechRequest request)

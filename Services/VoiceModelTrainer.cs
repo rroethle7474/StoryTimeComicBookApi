@@ -53,6 +53,8 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             _logger.LogInformation("Starting voice model training for model {ModelId}", modelId);
 
             // Check if we should perform actual model training or just use reference-based generation
+            // remove this check as we will always use the perform training
+            // need to get steps as well for this to match them up for creating zip file.
             bool performModelTraining = _configuration.GetValue<bool>("VoiceModel:PerformTraining", false);
             string modelVersion = null;
             List<string> voiceSampleUrls = null;

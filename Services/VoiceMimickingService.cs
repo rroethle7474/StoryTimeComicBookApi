@@ -192,62 +192,62 @@ public class VoiceMimickingService : IVoiceMimickingService
         }
     }
 
-    public async Task<TrainModelResponse> TrainModelAsync(TrainModelRequest request)
-    {
-        try
-        {
-            var audioSnippets = await _context.AudioSnippets
-                .OrderByDescending(a => a.CreatedAt)
-                .Select(a => a.AudioFilePath)
-                .ToListAsync();
+    //public async Task<TrainModelResponse> TrainModelAsync(TrainModelRequest request)
+    //{
+    //    try
+    //    {
+    //        var audioSnippets = await _context.AudioSnippets
+    //            .OrderByDescending(a => a.CreatedAt)
+    //            .Select(a => a.AudioFilePath)
+    //            .ToListAsync();
 
-            if (!audioSnippets.Any())
-            {
-                throw new InvalidOperationException("No audio snippets available for training");
-            }
+    //        if (!audioSnippets.Any())
+    //        {
+    //            throw new InvalidOperationException("No audio snippets available for training");
+    //        }
 
-            var voiceModel = new VoiceModel
-            {
-                VoiceModelName = $"Model_{DateTime.UtcNow:yyyyMMdd_HHmmss}",
-                Status = "training",
-                TrainingDate = DateTime.UtcNow
-            };
+    //        var voiceModel = new VoiceModel
+    //        {
+    //            VoiceModelName = $"Model_{DateTime.UtcNow:yyyyMMdd_HHmmss}",
+    //            Status = "training",
+    //            TrainingDate = DateTime.UtcNow
+    //        };
 
-            _context.VoiceModels.Add(voiceModel);
-            await _context.SaveChangesAsync();
+    //        _context.VoiceModels.Add(voiceModel);
+    //        await _context.SaveChangesAsync();
 
-            // Start the training process asynchronously
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var huggingfaceModelName = await _modelTrainer.TrainModelAsync(audioSnippets, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
+    //        // Start the training process asynchronously
+    //        _ = Task.Run(async () =>
+    //        {
+    //            try
+    //            {
+    //                var huggingfaceModelName = await _modelTrainer.TrainModelAsync(audioSnippets, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
                     
-                    // Update model status after successful training
-                    voiceModel.Status = "completed";
-                    voiceModel.IsCompleted = true;
-                    voiceModel.HuggingFaceModelName = huggingfaceModelName;
-                    await _context.SaveChangesAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error during model training for model {ModelId}", voiceModel.VoiceModelId);
-                    voiceModel.Status = "failed";
-                    await _context.SaveChangesAsync();
-                }
-            });
+    //                // Update model status after successful training
+    //                voiceModel.Status = "completed";
+    //                voiceModel.IsCompleted = true;
+    //                voiceModel.HuggingFaceModelName = huggingfaceModelName;
+    //                await _context.SaveChangesAsync();
+    //            }
+    //            catch (Exception ex)
+    //            {
+    //                _logger.LogError(ex, "Error during model training for model {ModelId}", voiceModel.VoiceModelId);
+    //                voiceModel.Status = "failed";
+    //                await _context.SaveChangesAsync();
+    //            }
+    //        });
 
-            return new TrainModelResponse
-            {
-                Message = "Model training initiated."
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error initiating model training");
-            throw;
-        }
-    }
+    //        return new TrainModelResponse
+    //        {
+    //            Message = "Model training initiated."
+    //        };
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _logger.LogError(ex, "Error initiating model training");
+    //        throw;
+    //    }
+    //}
 
     public async Task<SynthesizeSpeechResponse> SynthesizeSpeechAsync(SynthesizeSpeechRequest request)
     {
@@ -453,6 +453,8 @@ public class VoiceMimickingService : IVoiceMimickingService
         try
         {
             var id = Guid.Parse(voiceModelId);
+
+            // retrieve the ReplicateModel and VoiceModelAudioSnippets
             var voiceModel = await _context.VoiceModels
                 .Include(v => v.AudioSnippets)
                 .ThenInclude(a => a.AudioSnippet)
@@ -482,7 +484,7 @@ public class VoiceMimickingService : IVoiceMimickingService
                         .Select(a => a.AudioSnippet.AudioFilePath)
                         .ToList();
 
-                    
+                    // change name of HugingFaceModel and also pass in the models in a more efficient way.
                     var huggingFaceModelName = await _modelTrainer.TrainModelAsync(audioFilePaths, voiceModel.VoiceModelId, voiceModel.VoiceModelName);
 
                     // Update status after training
