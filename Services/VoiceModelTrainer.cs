@@ -119,17 +119,17 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             finally
             {
                 // Clean up the temporary folder
-                //if (Directory.Exists(trainingDataFolder))
-                //{
-                //    Directory.Delete(trainingDataFolder, true);
-                //}
+                if (Directory.Exists(trainingDataFolder))
+                {
+                    Directory.Delete(trainingDataFolder, true);
+                }
 
                 // Clean up the ZIP file
                 string zipPath = Path.Combine(Path.GetTempPath(), $"training_data_{modelId}.zip");
-                //if (File.Exists(zipPath))
-                //{
-                //    File.Delete(zipPath);
-                //}
+                if (File.Exists(zipPath))
+                {
+                    File.Delete(zipPath);
+                }
             }
         }
         catch (Exception ex)
@@ -325,9 +325,19 @@ public class VoiceModelTrainer : IVoiceModelTrainer
             using (var trainWriter = new StreamWriter(Path.Combine(outputFolder, "train_data.txt")))
             using (var valWriter = new StreamWriter(Path.Combine(outputFolder, "validation_data.txt")))
             {
-                int index = 0;
-                foreach (var audioSnippet in audioSnippets)
+                // Sort by StepId or StepNumber if available to ensure consistency
+                var orderedSnippets = audioSnippets
+                    .OrderBy(a => a.Step?.StepNumber ?? 0)
+                    .ToList();
+
+                // Calculate split - first 60% for training, rest for validation
+                // If we have exactly 5 samples, use 3 for training and 2 for validation
+                int trainCount = Math.Min(12, orderedSnippets.Count);
+
+                for (int index = 0; index < orderedSnippets.Count; index++)
                 {
+                    var audioSnippet = orderedSnippets[index];
+
                     // Get the file name without path
                     string fileName = Path.GetFileName(audioSnippet.AudioSnippet.AudioFilePath);
 
@@ -353,28 +363,59 @@ public class VoiceModelTrainer : IVoiceModelTrainer
                         transcriptText = audioSnippet.Step.TranscriptText;
                     }
 
-                    // Add to training or validation data (80/20 split)
-                    string entry = $"{destFileName}|{transcriptText}";
-                    if (index % 2 == 0) // Every 5th file goes to validation
+                    // Add the speaker ID (use 0 for all since it's the same voice)
+                    // Format: audio_filename|transcript|speaker_id
+                    string entryWithSpeakerId = $"{destFileName}|{transcriptText}|0";
+
+                    // Add to training or validation based on the split
+                    if (index < trainCount)
                     {
-                        await valWriter.WriteLineAsync(entry);
+                        await trainWriter.WriteLineAsync(entryWithSpeakerId);
                     }
                     else
                     {
-                        await trainWriter.WriteLineAsync(entry);
+                        await valWriter.WriteLineAsync(entryWithSpeakerId);
                     }
-
-                    index++;
                 }
             }
 
-            // Create empty OOD_data.txt file as required by some StyleTTS2 configurations
             using (var oodWriter = new StreamWriter(Path.Combine(outputFolder, "OOD_data.txt")))
             {
-                // Leave it empty for now
-            }
+                // Get a dictionary of step IDs and their transcript texts (if available)
+                var stepTranscripts = new Dictionary<string, string>();
+                var voiceSteps = await _context.VoiceRecordingSteps
+                    .ToListAsync();
 
-            _logger.LogInformation("Training data prepared successfully in {OutputFolder}", outputFolder);
+                foreach (var step in voiceSteps)
+                {
+                    if (step.TranscriptText != null)
+                    {
+                        // Write the entry in the format: filename|transcription|speaker_id
+                        oodWriter.WriteLine($"{step.TranscriptText}|0");
+                    }
+                }
+
+                // Ensure we have at least 5 entries - add generic ones if needed
+                int linesWritten = voiceSteps.Count;
+                if (linesWritten < 5)
+                {
+                    // Standard phonetically diverse sentences to fill remaining slots
+                    var backupTexts = new[]
+                    {
+                        "The quick brown fox jumps over the lazy dog.",
+                        "How much wood would a woodchuck chuck if a woodchuck could chuck wood?",
+                        "Peter Piper picked a peck of pickled peppers.",
+                        "She sells seashells by the seashore.",
+                        "All human beings are born free and equal in dignity and rights."
+                    };
+
+                    for (int i = 0; i < Math.Min(5 - linesWritten, backupTexts.Length); i++)
+                    {
+                        // Use a generic filename if needed
+                        oodWriter.WriteLine($"generic_audio_{i + 1}.wav|{backupTexts[i]}|0");
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
